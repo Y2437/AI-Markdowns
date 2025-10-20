@@ -1,138 +1,136 @@
-2.  * ---
-    
-      ### **构建总纲（基础版）：基于PyTorch的“纯粹”单向单层RNN文本分类模型**
-    
-      #### **引言：我们的目标与哲学**
-      本次我们的目标是构建一个最基础的RNN模型，并理解其运作的每一个细节。我们将遵循“返璞归真，聚焦核心”的哲学。我们将亲眼见证一个神经网络如何**从零开始，仅凭训练数据**，学习到单词的含义（嵌入层），并理解句子的时序信息（RNN层），最终做出判断（线性层）。
-    
-      ---
-    
-      #### **第一部分：数据工程——模型的坚实地基 (Data Engineering: The Bedrock of the Model)**
-    
-      这一部分保持不变，因为无论模型多么简单，严谨的数据处理都是成功的先决条件。但我们的重点会放在“从零构建”上。
-    
-      1.  **环境配置与模块化项目结构**:
-          *   我们将使用与之前完全相同的环境 (`PyTorch`, `torchtext`, `spacy`等) 和项目结构。良好的工程实践是通用的。
-    
-      2.  **数据集加载与预处理**:
-          *   我们将继续使用`IMDB`数据集。
-          *   **分词(Tokenization)**: 同样使用`spaCy`进行高质量的分词。
-          *   **构建词汇表(Vocabulary)**: 这是**第一个核心变化点**。这一次，我们将**完全不使用**任何预训练的词向量（如GloVe）。我们将遍历训练数据集，构建一个纯粹基于这些数据的词汇表。我们将观察一个`nn.Embedding`层如何通过反向传播，自己学习词与词之间的关系。
-    
-      3.  **数据管道(Data Pipeline)的构建**:
-          *   我们将同样使用`torchtext.legacy`的`BucketIterator`。它的核心作用——高效处理变长序列并打包成批次——对于任何序列模型都是至关重要的。
-    
-      ---
-    
-      #### **第二部分：模型构建——搭建最纯粹的神经网络大脑 (Model Architecture: Building the Purest Brain)**
-    
-      这是理论和代码变化最大的部分。我们将构建一个“麻雀虽小，五脏俱全”的基础模型。
-    
-      1.  **基础RNN模型(BasicRNNClassifier)**:
-          *   **组件**:
-              1.  `nn.Embedding`: 嵌入层。这一次，它的权重将是**随机初始化**的。我们将详细解释为什么即便如此，它也能在训练中学会捕捉语义。
-              2.  `nn.RNN`: RNN核心层。我们将实例化一个**单层（`n_layers=1`）、单向（`bidirectional=False`）** 的RNN。这将让我们能最清晰地观察到隐藏状态`hidden state`是如何一步步在时间序列中向前传递信息的。
-              3.  `nn.Linear`: 全连接层。它将接收单向RNN的**最后一个时间步**的隐藏状态，并将其映射到最终的输出。
-          *   **前向传播(Forward Pass)逻辑**: 这里的逻辑将大大简化。我们将清晰地展示数据流：索引 -> 随机初始化的嵌入向量 -> 单向RNN处理 -> 提取最后一个隐藏状态 -> 线性层输出。
-    
-      ---
-    
-      #### **第三部分：训练模块——为模型注入生命 (The Training Loop: Breathing Life into the Model)**
-    
-      训练流程的宏观结构不变，但初始化的细节会有关键变化。
-    
-      1.  **初始化与准备**:
-          *   **模型实例化**: 我们将根据新的、简化的超参数创建模型实例。
-          *   **关键变化**: 在初始化模型后，我们将**不再有**“加载预训练词向量”这一步。模型的嵌入层将带着它的随机权重直接进入训练，像一张白纸一样开始学习。
-          *   **优化器与损失函数**: 保持不变，`Adam`和`BCEWithLogitsLoss`依然是我们的最佳选择。
-    
-      2.  **训练与评估函数**:
-          *   `train_one_epoch`和`evaluate`函数的内部逻辑**完全不变**。标准的“训练五步法”是所有PyTorch模型训练的通用范式。
-    
-      3.  **主训练循环与模型保存**:
-          *   这部分逻辑也完全不变。我们依然会在每个epoch后进行评估，并只保存验证集上表现最好的模型。
-    
-      ---
-    
-      #### **第四部分：锦上添花——可视化、应用与总结 (Finishing Touches: Visualization & Application)**
-    
-      这部分的功能保持不变，但我们将能通过它们观察到一个从零学习的模型所呈现出的不同特性。
-    
-      1.  **实时训练过程可视化**:
-          *   我们将同样绘制损失曲线。观察一个从零学习的模型收敛过程会非常有启发性。
-    
-      2.  **模型加载与推理函数**:
-          *   我们将编写一个`predict_sentiment`函数。它的挑战在于，模型从未见过任何预训练知识，它对情感的判断完全来自于它在IMDB训练集上学到的“世界观”。
-    
-      ---
-      好的，我们正式开始！第一步，搭建我们的工作环境和项目蓝图。
-    
-      ---
-    
-      ### **第一部分 / 知识点一: 环境配置与项目结构**
-    
-      在编写任何代码之前，我们需要确保拥有正确的工具并搭建一个标准化的工作环境。这一步与我们之前的规划完全相同，因为它是优秀软件工程的基石，与模型复杂度无关。
-    
-      #### **代码块**
-    
-      ```bash
-      # 1. 安装必要的Python库
-      pip install torch
-      pip install torchtext
-      pip install numpy
-      pip install matplotlib
-      pip install spacy
-      
-      # 2. 下载spaCy英语分词模型
-      python -m spacy download en_core_web_sm
-      
-      # 3. 推荐的项目目录结构
-      imdb_rnn_project/
-      ├── data/
-      │   └── (此目录用于存放数据集, torchtext会自动下载)
-      ├── saved_models/
-      │   └── (此目录用于存放训练好的模型文件)
-      ├── plots/
-      │   └── (此目录用于存放训练过程中的损失曲线图)
-      └── src/
-          ├── config.py
-          ├── data_loader.py
-          ├── model.py
-          ├── train.py
-          ├── predict.py
-          └── utils.py
-      ```
-    
-      ---
-    
-      #### **详细解释**
-    
-      以上代码块分为两部分：环境依赖安装和项目结构规划。
-    
-      **1. 依赖库的作用**
-    
-      我们安装的每一个库都在项目中扮演着不可或缺的角色：
-    
-      *   **`torch`**: PyTorch是项目的核心，也是我们的“乐高积木”。我们将用它来构建神经网络的每一层、定义损失函数、执行自动微分（反向传播）以及优化模型参数。
-      *   **`torchtext`**: 这是PyTorch官方为自然语言处理（NLP）任务量身打造的工具箱。我们将使用它的经典API（`torchtext.legacy`）来自动下载并加载IMDB数据集、构建词汇表和创建数据迭代器。
-      *   **`numpy`**: Python科学计算的基石。虽然在本项目中可能不会直接大量使用，但它是PyTorch生态系统的一部分，两者可以无缝交互。
-      *   **`matplotlib`**: 知名的数据可视化库。我们将用它在每个epoch训练结束后，实时绘制并保存训练和验证的损失曲线，让我们能够直观地监控模型的学习进度。
-      *   **`spacy`**: 一个工业级的NLP库。我们将使用它提供的`en_core_web_sm`模型来进行高质量的英文分词，确保文本被切分成有意义的单元。
-    
-      **2. 模块化的项目结构**
-    
-      我们将所有代码都放在`src` (source) 文件夹下，并拆分成多个文件。这种模块化的设计是优秀软件工程的实践，能带来诸多好处：
-    
-      *   **高内聚，低耦合**: 每个文件只做一件事。`model.py`只关心模型结构，`data_loader.py`只关心数据准备。这种分离使得代码更容易理解、修改和维护。
-      *   **可读性与可维护性**: 清晰的文件名就像书的目录，能让您或协作者快速定位到需要修改或理解的代码，而不是迷失在一个巨大的“main.py”文件中。
-      *   **可复用性**: `utils.py`可以存放一些通用的辅助函数（如计算程序运行时间），这些函数可以被轻松地复用到其他项目中。
-      *   **清晰的工作流程**:
-          *   `config.py`: 存放所有超参数和配置，方便统一管理和调优。
-          *   `data_loader.py`: 负责准备好数据“食材”。
-          *   `model.py`: 定义我们的RNN“食谱”。
-          *   `train.py`: “厨房重地”，将“食材”和“食谱”结合起来，进行“烹饪”（训练）。
-          *   `saved_models/`: 存放训练好的最佳模型。
-          *   `predict.py`: “品尝室”，加载训练好的模型，对新的电影评论进行情感预测。
+### **构建总纲（基础版）：基于PyTorch的“纯粹”单向单层RNN文本分类模型**
+
+#### **引言：我们的目标与哲学**
+本次我们的目标是构建一个最基础的RNN模型，并理解其运作的每一个细节。我们将遵循“返璞归真，聚焦核心”的哲学。我们将亲眼见证一个神经网络如何**从零开始，仅凭训练数据**，学习到单词的含义（嵌入层），并理解句子的时序信息（RNN层），最终做出判断（线性层）。
+
+---
+
+#### **第一部分：数据工程——模型的坚实地基 (Data Engineering: The Bedrock of the Model)**
+
+这一部分保持不变，因为无论模型多么简单，严谨的数据处理都是成功的先决条件。但我们的重点会放在“从零构建”上。
+
+1.  **环境配置与模块化项目结构**:
+    *   我们将使用与之前完全相同的环境 (`PyTorch`, `torchtext`, `spacy`等) 和项目结构。良好的工程实践是通用的。
+
+2.  **数据集加载与预处理**:
+    *   我们将继续使用`IMDB`数据集。
+    *   **分词(Tokenization)**: 同样使用`spaCy`进行高质量的分词。
+    *   **构建词汇表(Vocabulary)**: 这是**第一个核心变化点**。这一次，我们将**完全不使用**任何预训练的词向量（如GloVe）。我们将遍历训练数据集，构建一个纯粹基于这些数据的词汇表。我们将观察一个`nn.Embedding`层如何通过反向传播，自己学习词与词之间的关系。
+
+3.  **数据管道(Data Pipeline)的构建**:
+    *   我们将同样使用`torchtext.legacy`的`BucketIterator`。它的核心作用——高效处理变长序列并打包成批次——对于任何序列模型都是至关重要的。
+
+---
+
+#### **第二部分：模型构建——搭建最纯粹的神经网络大脑 (Model Architecture: Building the Purest Brain)**
+
+这是理论和代码变化最大的部分。我们将构建一个“麻雀虽小，五脏俱全”的基础模型。
+
+1.  **基础RNN模型(BasicRNNClassifier)**:
+    *   **组件**:
+        1.  `nn.Embedding`: 嵌入层。这一次，它的权重将是**随机初始化**的。我们将详细解释为什么即便如此，它也能在训练中学会捕捉语义。
+        2.  `nn.RNN`: RNN核心层。我们将实例化一个**单层（`n_layers=1`）、单向（`bidirectional=False`）** 的RNN。这将让我们能最清晰地观察到隐藏状态`hidden state`是如何一步步在时间序列中向前传递信息的。
+        3.  `nn.Linear`: 全连接层。它将接收单向RNN的**最后一个时间步**的隐藏状态，并将其映射到最终的输出。
+    *   **前向传播(Forward Pass)逻辑**: 这里的逻辑将大大简化。我们将清晰地展示数据流：索引 -> 随机初始化的嵌入向量 -> 单向RNN处理 -> 提取最后一个隐藏状态 -> 线性层输出。
+
+---
+
+#### **第三部分：训练模块——为模型注入生命 (The Training Loop: Breathing Life into the Model)**
+
+训练流程的宏观结构不变，但初始化的细节会有关键变化。
+
+1.  **初始化与准备**:
+    *   **模型实例化**: 我们将根据新的、简化的超参数创建模型实例。
+    *   **关键变化**: 在初始化模型后，我们将**不再有**“加载预训练词向量”这一步。模型的嵌入层将带着它的随机权重直接进入训练，像一张白纸一样开始学习。
+    *   **优化器与损失函数**: 保持不变，`Adam`和`BCEWithLogitsLoss`依然是我们的最佳选择。
+
+2.  **训练与评估函数**:
+    *   `train_one_epoch`和`evaluate`函数的内部逻辑**完全不变**。标准的“训练五步法”是所有PyTorch模型训练的通用范式。
+
+3.  **主训练循环与模型保存**:
+    *   这部分逻辑也完全不变。我们依然会在每个epoch后进行评估，并只保存验证集上表现最好的模型。
+
+---
+
+#### **第四部分：锦上添花——可视化、应用与总结 (Finishing Touches: Visualization & Application)**
+
+这部分的功能保持不变，但我们将能通过它们观察到一个从零学习的模型所呈现出的不同特性。
+
+1.  **实时训练过程可视化**:
+    *   我们将同样绘制损失曲线。观察一个从零学习的模型收敛过程会非常有启发性。
+
+2.  **模型加载与推理函数**:
+    *   我们将编写一个`predict_sentiment`函数。它的挑战在于，模型从未见过任何预训练知识，它对情感的判断完全来自于它在IMDB训练集上学到的“世界观”。
+
+---
+好的，我们正式开始！第一步，搭建我们的工作环境和项目蓝图。
+
+---
+
+### **第一部分 / 知识点一: 环境配置与项目结构**
+
+在编写任何代码之前，我们需要确保拥有正确的工具并搭建一个标准化的工作环境。这一步与我们之前的规划完全相同，因为它是优秀软件工程的基石，与模型复杂度无关。
+
+#### **代码块**
+
+```bash
+# 1. 安装必要的Python库
+pip install torch
+pip install torchtext
+pip install numpy
+pip install matplotlib
+pip install spacy
+
+# 2. 下载spaCy英语分词模型
+python -m spacy download en_core_web_sm
+
+# 3. 推荐的项目目录结构
+imdb_rnn_project/
+├── data/
+│   └── (此目录用于存放数据集, torchtext会自动下载)
+├── saved_models/
+│   └── (此目录用于存放训练好的模型文件)
+├── plots/
+│   └── (此目录用于存放训练过程中的损失曲线图)
+└── src/
+    ├── config.py
+    ├── data_loader.py
+    ├── model.py
+    ├── train.py
+    ├── predict.py
+    └── utils.py
+```
+
+---
+
+#### **详细解释**
+
+以上代码块分为两部分：环境依赖安装和项目结构规划。
+
+**1. 依赖库的作用**
+
+我们安装的每一个库都在项目中扮演着不可或缺的角色：
+
+*   **`torch`**: PyTorch是项目的核心，也是我们的“乐高积木”。我们将用它来构建神经网络的每一层、定义损失函数、执行自动微分（反向传播）以及优化模型参数。
+*   **`torchtext`**: 这是PyTorch官方为自然语言处理（NLP）任务量身打造的工具箱。我们将使用它的经典API（`torchtext.legacy`）来自动下载并加载IMDB数据集、构建词汇表和创建数据迭代器。
+*   **`numpy`**: Python科学计算的基石。虽然在本项目中可能不会直接大量使用，但它是PyTorch生态系统的一部分，两者可以无缝交互。
+*   **`matplotlib`**: 知名的数据可视化库。我们将用它在每个epoch训练结束后，实时绘制并保存训练和验证的损失曲线，让我们能够直观地监控模型的学习进度。
+*   **`spacy`**: 一个工业级的NLP库。我们将使用它提供的`en_core_web_sm`模型来进行高质量的英文分词，确保文本被切分成有意义的单元。
+
+**2. 模块化的项目结构**
+
+我们将所有代码都放在`src` (source) 文件夹下，并拆分成多个文件。这种模块化的设计是优秀软件工程的实践，能带来诸多好处：
+
+*   **高内聚，低耦合**: 每个文件只做一件事。`model.py`只关心模型结构，`data_loader.py`只关心数据准备。这种分离使得代码更容易理解、修改和维护。
+*   **可读性与可维护性**: 清晰的文件名就像书的目录，能让您或协作者快速定位到需要修改或理解的代码，而不是迷失在一个巨大的“main.py”文件中。
+*   **可复用性**: `utils.py`可以存放一些通用的辅助函数（如计算程序运行时间），这些函数可以被轻松地复用到其他项目中。
+*   **清晰的工作流程**:
+    *   `config.py`: 存放所有超参数和配置，方便统一管理和调优。
+    *   `data_loader.py`: 负责准备好数据“食材”。
+    *   `model.py`: 定义我们的RNN“食谱”。
+    *   `train.py`: “厨房重地”，将“食材”和“食谱”结合起来，进行“烹饪”（训练）。
+    *   `saved_models/`: 存放训练好的最佳模型。
+    *   `predict.py`: “品尝室”，加载训练好的模型，对新的电影评论进行情感预测。
 
 现在，我们将编写数据加载的核心逻辑。我们将使用`torchtext`来加载IMDB数据集，并定义`Field`对象。最关键的变化是，在构建词汇表时，我们**不会**加载任何预训练的词向量。
 
@@ -146,102 +144,144 @@
 
 **`src/data_loader.py`**
 
+好的，我们继续完成这个使用现代`torchtext` API的数据加载器。
+
+---
+
+**`src/data_loader.py` (Continued)**
+
 ```python
 import torch
-from torchtext.legacy import data
-from torchtext.legacy import datasets
+from torch.utils.data import DataLoader, random_split, Dataset
+from torch.nn.utils.rnn import pad_sequence
+from torchtext.datasets import IMDB
+from torchtext.vocab import build_vocab_from_iterator
 import spacy
 import random
+# --- 自定义Dataset类 ---
+class IMDBListDataset(Dataset):
+    def __init__(self, data_list):
+        self.data = data_list
 
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx):
+        return self.data[idx]
+# -------------------------
 SEED = 1234
 torch.manual_seed(SEED)
-torch.backends.cudnn.deterministic = True
 
-def get_imdb_loaders(batch_size, device):
+def get_imdb_data_loader(batch_size, device):
     try:
         nlp = spacy.load('en_core_web_sm')
     except IOError:
         print("SpaCy 'en_core_web_sm' model not found.")
         print("Please run: python -m spacy download en_core_web_sm")
-        return None, None, None, None, None
+        return None, None, None, None
 
-    TEXT = data.Field(tokenize='spacy', 
-                      tokenizer_language='en_core_web_sm',
-                      batch_first=True,
-                      lower=True)
-
-    LABEL = data.LabelField(dtype=torch.float)
+    def spacy_tokenizer(text):
+        return [tok.text for tok in nlp.tokenizer(text)]
 
     print("Loading IMDB dataset...")
-    train_data, test_data = datasets.IMDB.splits(TEXT, LABEL)
+    train_iter_raw, test_iter_raw = IMDB(split=('train', 'test'))
+    def yield_tokens(data_iter):
+        for _, text in data_iter:
+            yield spacy_tokenizer(text.lower())
 
-    train_data, valid_data = train_data.split(random_state=random.seed(SEED))
-  
-    print(f"Number of training examples: {len(train_data)}")
-    print(f"Number of validation examples: {len(valid_data)}")
-    print(f"Number of testing examples: {len(test_data)}")
-
-    MAX_VOCAB_SIZE = 25000
     print("Building vocabulary from scratch...")
-    TEXT.build_vocab(train_data, 
-                     max_size=MAX_VOCAB_SIZE)
-  
-    LABEL.build_vocab(train_data)
+    MAX_VOCAB_SIZE = 25000
+    vocab = build_vocab_from_iterator(yield_tokens(train_iter_raw),
+                                      max_tokens=MAX_VOCAB_SIZE,
+                                      specials=["<unk>", "<pad>"])
+    vocab.set_default_index(vocab["<unk>"])
 
-    print(f"Unique tokens in TEXT vocabulary: {len(TEXT.vocab)}")
-    print(f"Unique tokens in LABEL vocabulary: {len(LABEL.vocab)}")
-    print(f"Top 20 most frequent words: {TEXT.vocab.freqs.most_common(20)}")
+    PAD_IDX = vocab["<pad>"]
+    UNK_IDX = vocab["<unk>"]
 
-    train_iterator, valid_iterator, test_iterator = data.BucketIterator.splits(
-        (train_data, valid_data, test_data), 
-        batch_size=batch_size,
-        device=device)
-  
+    # 3. Define processing pipelines
+    text_pipeline = lambda x: vocab(spacy_tokenizer(x.lower()))
+    label_pipeline = lambda x: 1.0 if x == 'pos' else 0.0
+
+    # 4. Define the collate function
+    def collate_batch(batch):
+        label_list, text_list = [], []
+        for (_label, _text) in batch:
+            label_list.append(label_pipeline(_label))
+            processed_text = torch.tensor(text_pipeline(_text), dtype=torch.int64)
+            text_list.append(processed_text)
+        
+        labels = torch.tensor(label_list, dtype=torch.float)
+        texts = pad_sequence(text_list, batch_first=True, padding_value=PAD_IDX)
+        
+        return texts.to(device), labels.to(device)
+
+    # 5. Create Dataset objects and split
+    print("Processing data and creating datasets...")
+    train_dataset = IMDBListDataset(list(IMDB(split='train')))
+    test_dataset = IMDBListDataset(list(IMDB(split='test')))
+    num_train = int(len(train_dataset) * 0.8)
+    split_train_, split_valid_ = random_split(train_dataset, [num_train, len(train_dataset) - num_train])
+
+    print(f"Number of training examples: {len(split_train_)}")
+    print(f"Number of validation examples: {len(split_valid_)}")
+    print(f"Number of testing examples: {len(test_dataset)}")
+
+    # 6. Create DataLoaders
+    train_loader = DataLoader(split_train_, batch_size=batch_size, shuffle=True, collate_fn=collate_batch)
+    valid_loader = DataLoader(split_valid_, batch_size=batch_size, shuffle=False, collate_fn=collate_batch)
+    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, collate_fn=collate_batch)
+    
     print("Data loaders created successfully.")
-  
-    return TEXT, LABEL, train_iterator, valid_iterator, test_iterator
+    
+    return vocab, train_loader, valid_loader, test_loader
 ```
 
 ---
 
 #### **详细解释**
 
-让我们一步步解析这段代码，并重点关注与之前版本的不同之处。
+让我们一步步解析这段现代化的代码。它将`Field`和`BucketIterator`的隐式逻辑，拆分成了清晰、可控的步骤。
 
-1.  **导入与初始化**:
-    *   我们依然使用`torchtext.legacy`，并设置随机种子以保证实验结果的可复现性。这部分保持不变。
+**1. 加载原始数据迭代器**
+*   `IMDB(split=('train', 'test'))`: 新的API直接返回可迭代的对象。每个对象在被迭代时，会逐一产出原始数据点。每个数据点是一个元组，例如 `('pos', 'This is a great movie...')`。
 
-2.  **`spacy`加载与`Field`定义**:
-    *   这部分也完全相同。我们仍然需要一个高质量的分词器。
-    *   `TEXT`字段的定义中，`batch_first=True`和`lower=True`依然是最佳实践。
-    *   `LABEL`字段的`dtype=torch.float`也保持不变，以匹配我们后续将使用的`BCEWithLogitsLoss`损失函数。
+**2. 构建词汇表 (`build_vocab_from_iterator`)**
+*   `yield_tokens`: 我们定义一个生成器函数，它会遍历原始数据迭代器，对每个文本进行分词和小写处理，然后`yield`（产出）一个词元列表。这是构建词汇表所需的数据源。
+*   `build_vocab_from_iterator`: 这是新的核心函数。它接收一个词元迭代器，自动统计词频并构建词汇表。
+    *   `specials=["<unk>", "<pad>"]`: 我们明确地告诉词汇表需要包含这两个特殊的标记。
+    *   `vocab.set_default_index(vocab["<unk>"])`: 这是一个至关重要的步骤。它设置了当遇到词汇表中不存在的词（OOV, Out-of-Vocabulary）时，默认返回`<unk>`标记的索引。
 
-3.  **加载和分割数据集**:
-    *   `datasets.IMDB.splits(TEXT, LABEL)`和`train_data.split(...)`的用法也完全一样。无论模型结构如何，准备好训练集、验证集和测试集都是标准流程。
+**3. 定义处理流水线 (Processing Pipelines)**
+*   `text_pipeline` 和 `label_pipeline`: 我们使用简单的`lambda`函数来定义将原始文本和标签转换为数字的完整流程。
+    *   `text_pipeline`: 接收一个原始文本字符串，先将其分词并小写，然后将词元列表送入`vocab`对象。`vocab`对象本身是可调用的，它会自动将词元列表转换为对应的数字索引列表。
+    *   `label_pipeline`: 接收原始标签字符串（'pos'或'neg'），并将其转换为浮点数1.0或0.0。
 
-4.  **构建词汇表 (`build_vocab`) - 核心变化点**:
-    *   这是本次修改最核心的地方。请注意这一行代码：
-        ```python
-        TEXT.build_vocab(train_data, 
-                         max_size=MAX_VOCAB_SIZE)
-        ```
-    *   与之前的版本相比，我们**完全移除了**`vectors="glove.6B.100d"`和`unk_init=...`这两个参数。
-    *   **这意味着什么？**
-        1.  `torchtext`现在只会遍历`train_data`，统计所有单词的频率。
-        2.  它会选出最常见的25000个单词，创建一个从单词到整数索引的映射。
-        3.  **它不会加载任何外部的词向量。**
-    *   这样一来，后续在模型中创建的`nn.Embedding`层，其权重将是**完全随机初始化**的。模型将不得不像一个初生的婴儿一样，在训练过程中，仅仅通过分析IMDB数据里的词语搭配，自己去“领悟”每个词应该用什么样的向量来表示。
+**4. `collate_fn` - 手动控制批处理的核心**
+*   这是取代`BucketIterator`的核心。`DataLoader`在从数据集中取出N个样本后，会将这N个样本组成的列表传递给我们定义的`collate_batch`函数，由我们自己决定如何将它们打包成一个批次。
+*   **工作流程**:
+    1.  初始化空的`label_list`和`text_list`。
+    2.  遍历批次中的每一个样本`(_label, _text)`。
+    3.  对`_label`应用`label_pipeline`，将结果添加到`label_list`中。
+    4.  对`_text`应用`text_pipeline`，将得到的索引列表转换为PyTorch张量，然后添加到`text_list`中。此时，`text_list`是一个包含了多个**长度不同**的张量的列表。
+    5.  `labels = torch.tensor(label_list, ...)`: 将标签列表转换为一个单一的标签张量。
+    6.  `texts = pad_sequence(text_list, ...)`: **关键步骤**。`pad_sequence`是PyTorch提供的强大工具，它接收一个由多个不同长度张量组成的列表，自动进行填充，并将它们堆叠成一个单一的、形状规整的张量。
+        *   `batch_first=True`: 确保输出的张量形状是`[batch_size, sequence_length]`。
+        *   `padding_value=PAD_IDX`: 指定使用我们词汇表中`<pad>`标记的索引来进行填充。
+    7.  最后，将处理好的`texts`和`labels`张量移动到指定设备（GPU或CPU）并返回。
 
-5.  **创建`BucketIterator`**:
-    *   这部分保持不变。`BucketIterator`的优势在于高效地处理变长序列，这个需求与模型是否使用预训练向量无关。它将忠实地为我们打包好一批批的**数字索引**，准备送入模型。
+**5. 创建数据集对象与分割**
+*   `list(IMDB(split='train'))`: 我们将数据迭代器转换为列表，这使得我们可以方便地使用索引和进行分割。
+*   `random_split`: 这是`torch.utils.data`提供的标准函数，用于将一个数据集安全地分割成多个不重叠的子集。我们用它来划分训练集和验证集。
 
-6.  **返回**:
-    *   函数最终返回`TEXT`字段（这次它只包含词汇表映射，其`.vocab.vectors`属性将为空）、`LABEL`字段以及三个数据迭代器。
-    好的，非常感谢您的提醒！我会确保这篇笔记是一个完全独立的、从零开始的教程。
+**6. 创建`DataLoader`s**
+*   我们使用标准的`torch.utils.data.DataLoader`。
+    *   它接收一个`Dataset`对象（如`split_train_`）。
+    *   `shuffle=True`: 在每个epoch开始时打乱训练数据，这对于模型的良好收敛至关重要。验证和测试集则不需要打乱。
+    *   `collate_fn=collate_batch`: **我们将我们自定义的批处理函数`collate_batch`传递给了`DataLoader`**。这是将所有部分连接在一起的关键。
 
-我们已经完成了数据工程部分，现在进入项目的核心：构建我们的神经网络模型。我们将定义一个最基础的RNN分类器，它只包含单层、单向的RNN，并且其嵌入层将从随机权重开始学习。
+现在，您拥有了一个完全基于现代PyTorch API构建的数据加载器。它虽然比`legacy`版本需要编写更多的代码，但每一步都清晰可控，并且与PyTorch的整个生态系统（如自定义`Dataset`、`Sampler`等）结合得更紧密。
 
-我们将这段代码写入`src-simple/model.py`文件。
 
 ---
 
@@ -371,18 +411,18 @@ import torch.nn as nn
 import torch.optim as optim
 
 from model import BasicRNNClassifier
-from data_loader import get_imdb_loaders
+from data_loader import get_imdb_data_loader
 import config
 
 def initialize_training():
     print("Initializing training...")
-    TEXT, _, train_iterator, valid_iterator, _ = get_imdb_loaders(config.BATCH_SIZE, config.DEVICE)
+    vocab, train_loader, valid_loader, _ = get_imdb_data_loader(config.BATCH_SIZE, config.DEVICE)
   
-    if TEXT is None:
+    if vocab is None:
         return None, None, None, None, None
       
-    config.INPUT_DIM = len(TEXT.vocab)
-    config.PAD_IDX = TEXT.vocab.stoi[TEXT.pad_token]
+    config.INPUT_DIM = len(vocab)
+    config.PAD_IDX = vocab['<pad>']
   
     print("Instantiating model...")
     model = BasicRNNClassifier(
@@ -400,11 +440,13 @@ def initialize_training():
     criterion = criterion.to(config.DEVICE)
   
     print("Initialization complete.")
-    return model, train_iterator, valid_iterator, criterion, optimizer
+    # v-- 返回更新后的变量名
+    return model, train_loader, valid_loader, criterion, optimizer
 
 
 if __name__ == '__main__':
-    model, train_iterator, valid_iterator, criterion, optimizer = initialize_training()
+    # v-- 变量名同步更新
+    model, train_loader, valid_loader, criterion, optimizer = initialize_training()
   
     if model:
         def count_parameters(m):
@@ -563,9 +605,441 @@ def evaluate(model, iterator, criterion):
 
 这个函数是`train_one_epoch`的“只读”版本，用于在验证集或测试集上评估模型性能。
 
-*   `model.eval()`: **切换到评估模式**。这会关闭Dropout等在训练和评估时行为不同的层，确保评估结果是确定性的、可复现的。
+* `model.eval()`: **切换到评估模式**。这会关闭Dropout等在训练和评估时行为不同的层，确保评估结果是确定性的、可复现的。
+
 *   `with torch.no_grad()`: **关闭梯度计算**。这是一个上下文管理器，它会告诉PyTorch在这个代码块内部的所有计算都**不需要计算和存储梯度**。这会带来两个巨大好处：
     *   **大幅提升速度**，因为省去了复杂的梯度计算。
     *   **显著减少内存消耗**，因为不需要为反向传播存储中间值。
     **在所有非训练的场景（验证、测试、推理）下，都必须使用这个上下文管理器。**
-*   **其余部分**: 它的计算流程（前向传播、计算损失和准确率）与`train_one_epoch`函数完全相同，但**完全没有**与梯度和权重更新相关的三步（`optimizer.zero_grad()`, `loss.backward()`, `optimizer.step()`）。它只计算，不学习。 
+    
+* **其余部分**: 它的计算流程（前向传播、计算损失和准确率）与`train_one_epoch`函数完全相同，但**完全没有**与梯度和权重更新相关的三步（`optimizer.zero_grad()`, `loss.backward()`, `optimizer.step()`）。它只计算，不学习。 
+
+  好的，我们来到了将所有部件组装在一起的最后一步。
+
+  现在我们已经拥有了数据加载器、模型、以及独立的训练和评估函数。是时候将它们整合到一个主训练循环中了。这个循环将控制整个训练过程，记录性能指标，并在关键时刻保存我们最好的模型。
+
+  我们将扩充`src/train.py`文件，加入主执行逻辑。
+
+  ---
+
+  ### **第三部分 / 知识点三: 主训练循环与模型保存**
+
+  #### **代码块**
+
+  ```python
+  # src/train.py (在原有代码基础上添加和修改)
+  
+  import torch
+  import torch.nn as nn
+  import torch.optim as optim
+  import time
+  import os
+  
+  from model import BasicRNNClassifier
+  from data_loader import get_imdb_loaders
+  import config
+  from utils import epoch_time # 假设我们有一个utils.py来处理时间格式化
+  
+  # ... (initialize_training, binary_accuracy, train_one_epoch, evaluate 函数保持不变) ...
+  
+  def run_training():
+      model, train_iterator, valid_iterator, criterion, optimizer = initialize_training()
+    
+      if model is None:
+          print("Initialization failed. Exiting.")
+          return
+  
+      best_valid_loss = float('inf')
+      
+      # 创建保存模型的目录
+      os.makedirs('../saved_models', exist_ok=True)
+  
+      print("\n--- Starting Training ---")
+      for epoch in range(config.N_EPOCHS):
+          start_time = time.time()
+        
+          train_loss, train_acc = train_one_epoch(model, train_iterator, optimizer, criterion)
+          valid_loss, valid_acc = evaluate(model, valid_iterator, criterion)
+        
+          end_time = time.time()
+        
+          epoch_mins, epoch_secs = epoch_time(start_time, end_time)
+        
+          if valid_loss < best_valid_loss:
+              best_valid_loss = valid_loss
+              torch.save(model.state_dict(), '../saved_models/basic-rnn-model.pt')
+              print(f"  -> New best model saved!")
+        
+          print(f'Epoch: {epoch+1:02} | Epoch Time: {epoch_mins}m {epoch_secs}s')
+          print(f'\tTrain Loss: {train_loss:.3f} | Train Acc: {train_acc*100:.2f}%')
+          print(f'\t Val. Loss: {valid_loss:.3f} |  Val. Acc: {valid_acc*100:.2f}%')
+  
+      print("--- Training finished ---")
+  
+  
+  if __name__ == '__main__':
+      run_training()
+  
+  ```
+
+  **`src/utils.py`** (新建一个辅助函数文件)
+  
+  ```python
+  # src/utils.py
+  
+  def epoch_time(start_time, end_time):
+      elapsed_time = end_time - start_time
+      elapsed_mins = int(elapsed_time / 60)
+      elapsed_secs = int(elapsed_time - (elapsed_mins * 60))
+      return elapsed_mins, elapsed_secs
+  ```
+  ---
+  
+  #### **详细解释**
+  
+  **1. `utils.py`：辅助函数模块**
+  *   我们创建了一个`utils.py`文件，专门用于存放那些与核心逻辑（数据、模型、训练）无关，但在项目中很有用的小工具。这是一种良好的软件工程实践。
+  *   `epoch_time`函数接收开始和结束时间戳，计算出经过的分钟和秒数。这能帮助我们格式化地打印每个epoch的耗时，让我们对训练效率有一个直观的感受。
+  
+  **2. `run_training`函数：主控制流程**
+  我们将主逻辑封装在`run_training`函数中，并在`if __name__ == '__main__':`中调用它，这使得代码结构清晰。
+  
+  *   **初始化**:
+      *   首先调用`initialize_training()`函数来获取所有必要的组件：模型、数据迭代器、损失函数和优化器。
+      *   添加一个检查，如果初始化失败（例如，spacy模型未下载），则程序会打印提示并优雅地退出，而不是崩溃。
+  
+  *   **设置最佳性能跟踪器**:
+      *   `best_valid_loss = float('inf')`: 我们初始化一个变量来跟踪迄今为止遇到的**最低的验证集损失**。我们用正无穷大（`inf`）来初始化它，这保证了第一个epoch的验证损失肯定会比它小，从而确保第一个模型被保存。
+  
+  *   **创建目录**:
+      *   `os.makedirs('../saved_models', exist_ok=True)`: 这是一个非常健壮的创建目录的方法。如果`saved_models`目录不存在，它会创建它；如果已经存在，`exist_ok=True`参数会防止程序因目录已存在而报错。
+  
+  *   **主训练循环**:
+      *   `for epoch in range(config.N_EPOCHS)`: 这是控制训练总轮数的外部循环。`config.N_EPOCHS`是在配置文件中设置的总轮数。
+      *   `start_time = time.time()`: 在每个epoch开始时记录当前的时间戳。
+      *   `train_loss, train_acc = train_one_epoch(...)`: 调用我们之前定义的训练函数。这会驱动模型在整个训练数据集上学习一遍，并返回训练集上的平均损失和准确率。
+      *   `valid_loss, valid_acc = evaluate(...)`: **紧接着**，调用评估函数。使用刚刚在训练集上更新过的模型，在**验证集**上进行一次不带学习的评估，并获取验证集上的性能指标。
+      *   `end_time = time.time()`: 记录epoch结束的时间戳。
+  
+  *   **模型保存逻辑 (Checkpointing)**:
+      *   `if valid_loss < best_valid_loss:`: 这是整个训练流程的“决策核心”。我们比较当前epoch在验证集上的损失`valid_loss`和我们记录的“历史最佳”`best_valid_loss`。
+      *   **为什么用验证集损失而不是训练集损失？** 模型的最终目标是在未见过的数据上表现良好（泛化能力）。验证集扮演了“未见过的数据”的模拟考官。如果一个模型在验证集上损失更低，说明它的泛化能力更强。
+      *   `best_valid_loss = valid_loss`: 如果当前损失更低，说明模型在这个epoch取得了进步，我们更新`best_valid_loss`为新的最低记录。
+      *   `torch.save(model.state_dict(), '...')`: **执行模型保存**。
+          *   `model.state_dict()`: 这个方法会返回一个Python字典，其中包含了模型所有可学习的参数（权重和偏置）。它**不包含**模型的结构，只包含“知识”本身。这是PyTorch推荐的、最灵活的保存方式。
+          *   `torch.save()`: 将这个参数字典保存到硬盘上的一个`.pt`文件中。
+      *   **效果**: 我们只在验证损失创下新低时才保存模型。这意味着，当整个训练流程结束后，`saved_models`文件夹中留下的`basic-rnn-model.pt`文件，将总是对应于模型在验证集上表现最佳的那个状态。这是一种简单而极其有效的防止过拟合的策略。
+  
+  *   **打印训练日志**:
+      *   在每个epoch结束后，我们清晰地打印出该epoch的耗时、训练集和验证集上的损失与准确率。这能让我们非常直观地监控训练过程，诊断潜在的问题（例如，训练损失持续下降但验证损失上升，说明可能发生了过拟合）。
+  
+  好的，我们进入最后一个部分。
+  
+  一个完整的项目不止于训练，还应该包括结果的可视化和实际的应用。这将让我们的工作成果变得直观可见，并展示如何将训练好的模型用于解决真实世界的问题。
+  
+  ---
+  
+  ### **第四部分 / 知识点一: 实时训练过程可视化**
+  
+  在终端打印日志虽然有效，但远不如一张图表来得直观。我们将通过`matplotlib`在每个epoch结束后，动态地更新和保存一张训练与验证损失曲线图。这能让我们一目了然地诊断模型的训练状态，例如是否收敛、是否过拟合。
+  
+  我们将修改`src/train.py`，在主训练循环中集成绘图功能。
+  
+  #### **代码块**
+  
+  ```python
+  # src/train.py (在原有代码基础上添加和修改)
+  import torch
+  # ... (其他导入) ...
+  import matplotlib.pyplot as plt
+  import os
+  
+  # ... (所有函数保持不变) ...
+  
+  def plot_losses(train_losses, valid_losses, epoch_num):
+      plt.figure(figsize=(10, 6))
+      epochs = range(1, epoch_num + 1)
+      plt.plot(epochs, train_losses, 'bo-', label='Training Loss')
+      plt.plot(epochs, valid_losses, 'ro-', label='Validation Loss')
+      plt.title('Training and Validation Losses')
+      plt.xlabel('Epochs')
+      plt.ylabel('Loss')
+      plt.legend()
+      plt.grid(True)
+      plt.xticks(epochs)
+    
+      # 创建保存绘图的目录
+      os.makedirs('../plots', exist_ok=True)
+      plt.savefig('../plots/loss_curve.png')
+      plt.close()
+  
+  def run_training():
+      model, train_iterator, valid_iterator, criterion, optimizer = initialize_training()
+    
+      if model is None:
+          print("Initialization failed. Exiting.")
+          return
+  
+      best_valid_loss = float('inf')
+      train_losses = []
+      valid_losses = []
+    
+      os.makedirs('../saved_models', exist_ok=True)
+  
+      print("\n--- Starting Training ---")
+      for epoch in range(config.N_EPOCHS):
+          start_time = time.time()
+        
+          train_loss, train_acc = train_one_epoch(model, train_iterator, optimizer, criterion)
+          valid_loss, valid_acc = evaluate(model, valid_iterator, criterion)
+        
+          end_time = time.time()
+        
+          train_losses.append(train_loss)
+          valid_losses.append(valid_loss)
+          plot_losses(train_losses, valid_losses, epoch + 1)
+        
+          epoch_mins, epoch_secs = epoch_time(start_time, end_time)
+        
+          if valid_loss < best_valid_loss:
+              best_valid_loss = valid_loss
+              torch.save(model.state_dict(), '../saved_models/basic-rnn-model.pt')
+              print(f"  -> New best model saved!")
+        
+          print(f'Epoch: {epoch+1:02} | Epoch Time: {epoch_mins}m {epoch_secs}s')
+          print(f'\tTrain Loss: {train_loss:.3f} | Train Acc: {train_acc*100:.2f}%')
+          print(f'\t Val. Loss: {valid_loss:.3f} |  Val. Acc: {valid_acc*100:.2f}%')
+  
+      print("--- Training finished ---")
+      print(f"Final best validation loss: {best_valid_loss:.3f}")
+      print("Loss curve saved to 'plots/loss_curve.png'")
+  
+  
+  if __name__ == '__main__':
+      run_training()
+  ```
+  
+  ---
+  
+  #### **详细解释**
+  
+  **1. `plot_losses` 函数**
+  
+  这是一个专门用于绘制和保存损失曲线图的辅助函数。
+  
+  *   **输入**:
+      *   `train_losses`: 一个包含至今为止每个epoch训练损失的列表。
+      *   `valid_losses`: 一个包含至今为止每个epoch验证损失的列表。
+      *   `epoch_num`: 当前是第几个epoch，用于正确设置X轴。
+  *   **绘图步骤**:
+      1.  `plt.figure(figsize=(10, 6))`: 创建一个新的图形窗口，并设置其尺寸为10x6英寸，使其更适合查看。
+      2.  `epochs = range(1, epoch_num + 1)`: 创建一个从1到当前epoch数的整数序列，作为X轴的坐标。
+      3.  `plt.plot(epochs, train_losses, 'bo-', ...)`: 绘制训练损失曲线。`'bo-'`是一个格式化字符串，表示使用蓝色（b）、圆形标记（o）以及实线（-）来绘图。
+      4.  `plt.plot(epochs, valid_losses, 'ro-', ...)`: 在同一张图上绘制验证损失曲线，使用红色（r）、圆形标记和实线。
+      5.  `plt.title(...)`, `plt.xlabel(...)`, `plt.ylabel(...)`: 设置图表的标题和坐标轴标签，使其具有良好的可读性。
+      6.  `plt.legend()`: 显示图例，用于区分哪条线是训练损失，哪条是验证损失。
+      7.  `plt.grid(True)`: 添加网格线，方便更精确地查看数值。
+      8.  `plt.xticks(epochs)`: 确保X轴的刻度是整数，即1, 2, 3...，而不是可能出现的小数。
+      9.  `os.makedirs('../plots', exist_ok=True)`: 同样，确保用于存放图片的`plots`目录存在。
+      10. `plt.savefig('../plots/loss_curve.png')`: 将当前绘制的图形保存为PNG文件。每次调用这个函数，都会**覆盖**旧的图片，从而实现动态更新的效果。
+      11. `plt.close()`: 这是一个好习惯。它会关闭当前的图形实例，释放内存，并防止在某些IDE或Jupyter环境中图片被意外地连续显示出来。
+  
+  **2. 在 `run_training` 函数中的集成**
+  
+  我们将绘图逻辑无缝地集成到主训练循环中。
+  
+  *   **初始化损失列表**:
+      *   在循环开始前，创建两个空列表 `train_losses` 和 `valid_losses`，用于在每个epoch结束后存储该epoch的损失值。
+  *   **记录和绘图**:
+      *   在每个epoch的 `evaluate` 函数调用之后，我们立即将得到的 `train_loss` 和 `valid_loss` 分别追加到对应的列表中。
+      *   `plot_losses(train_losses, valid_losses, epoch + 1)`: 紧接着，调用我们新创建的绘图函数。由于我们每次都把完整的历史损失列表传给它，它会在每次被调用时都重新绘制并保存一张包含所有历史数据的最新曲线图。
+  
+  **这样做的效果是**：当你的训练脚本运行时，你可以在文件浏览器中打开`plots/loss_curve.png`这张图片。每隔一个epoch的时间，刷新这张图片，你就能看到新的数据点被添加进来，曲线不断延伸，从而**实时**监控模型的学习动态。你可以清晰地观察到两条曲线是否在下降，以及它们之间差距的变化，这是判断模型训练状态最直观的方式。
+  
+  
+  
+  ---
+  
+  ### **第四部分 / 知识点二: 编写预测函数与加载模型**
+  
+  #### **代码块**
+  
+  **`src/predict.py`**
+  ```python
+  import torch
+  import spacy
+  from model import BasicRNNClassifier
+  import config
+  
+  try:
+      nlp = spacy.load('en_core_web_sm')
+  except IOError:
+      print("SpaCy 'en_core_web_sm' model not found. Please run 'python -m spacy download en_core_web_sm'")
+      nlp = None
+  
+  def predict_sentiment(sentence, model, text_field):
+      if nlp is None:
+          return "Error: SpaCy model not loaded."
+        
+      model.eval()
+    
+      tokenized = [tok.text.lower() for tok in nlp.tokenizer(sentence)]
+      
+      unk_token_idx = text_field.vocab.stoi[text_field.unk_token]
+      indexed = [text_field.vocab.stoi.get(t, unk_token_idx) for t in tokenized]
+    
+      tensor = torch.LongTensor(indexed).to(config.DEVICE)
+      tensor = tensor.unsqueeze(0)
+    
+      with torch.no_grad():
+          prediction = torch.sigmoid(model(tensor))
+        
+      sentiment_prob = prediction.item()
+    
+      sentiment = "Positive" if sentiment_prob > 0.5 else "Negative"
+      
+      return f"{sentiment} (Score: {sentiment_prob:.3f})"
+  
+  def load_model_and_vocab():
+      print("Loading vocabulary...")
+      from data_loader import get_imdb_loaders
+      TEXT, _, _, _, _ = get_imdb_loaders(config.BATCH_SIZE, config.DEVICE)
+    
+      if TEXT is None:
+          print("Failed to load vocabulary.")
+          return None, None
+        
+      config.INPUT_DIM = len(TEXT.vocab)
+      config.PAD_IDX = TEXT.vocab.stoi[TEXT.pad_token]
+  
+      print("Loading trained model...")
+      model = BasicRNNClassifier(
+          vocab_size=config.INPUT_DIM,
+          embedding_dim=config.EMBEDDING_DIM,
+          hidden_dim=config.HIDDEN_DIM,
+          output_dim=config.OUTPUT_DIM,
+          pad_idx=config.PAD_IDX
+      )
+    
+      model_path = '../saved_models/basic-rnn-model.pt'
+      try:
+          model.load_state_dict(torch.load(model_path, map_location=config.DEVICE))
+      except FileNotFoundError:
+          print(f"Model file not found at {model_path}. Please run train.py first.")
+          return None, None
+          
+      model.to(config.DEVICE)
+    
+      return model, TEXT
+  
+  if __name__ == '__main__':
+      trained_model, text_field = load_model_and_vocab()
+    
+      if trained_model and text_field:
+          print("\nModel loaded successfully. You can now enter sentences for sentiment analysis.")
+        
+          review1 = "This film is absolutely fantastic! The acting was superb and the plot was gripping."
+          review2 = "I've never been so bored in my life. The movie was slow, predictable, and a complete waste of time."
+          review3 = "The movie was okay, not great but not terrible either."
+        
+          print(f"\nReview: '{review1}'")
+          print(f"Sentiment: {predict_sentiment(review1, trained_model, text_field)}")
+        
+          print(f"\nReview: '{review2}'")
+          print(f"Sentiment: {predict_sentiment(review2, trained_model, text_field)}")
+        
+          print(f"\nReview: '{review3}'")
+          print(f"Sentiment: {predict_sentiment(review3, trained_model, text_field)}")
+  
+  ```
+  
+  ---
+  
+  #### **详细解释**
+  
+  **1. `load_model_and_vocab` 函数**
+  
+  这个函数负责所有模型加载前的准备工作，确保推理环境与训练环境完全一致。
+  
+  *   **加载`TEXT`字段 (词汇表)**:
+      *   这是至关重要的一步。在推理时，我们需要将新的文本句子转换成模型训练时学习到的那个**特定的数字索引**。这个“词 -> 索引”的映射关系就存储在`TEXT.vocab`对象中。
+      *   因此，我们必须先通过调用`get_imdb_loaders`来重新构建一次`TEXT`字段和它的词汇表。这确保了推理时和训练时使用完全相同的预处理流程和词汇表。
+  *   **实例化模型**:
+      *   我们创建了一个与训练时**结构完全相同**的`BasicRNNClassifier`实例。所有超参数（如`HIDDEN_DIM`等）都必须和训练时保存的模型完全一致，否则权重将无法正确加载。
+  *   **加载模型权重**:
+      *   `model.load_state_dict(...)`: 这是`torch.save(model.state_dict(), ...)`的配对操作。它会加载文件中保存的参数字典，并将其中的权重和偏置“填充”到我们刚刚创建的、结构相同的模型骨架中。
+      *   `map_location=config.DEVICE`: 这是一个非常实用的参数。它确保了无论模型当初是在GPU还是CPU上训练和保存的，都能被正确地加载到当前配置的设备上。
+      *   `try-except`块：我们用一个错误处理块来包裹加载操作，如果找不到模型文件，会给用户一个清晰的提示，而不是直接报错。
+  *   `model.to(config.DEVICE)`: 将加载并填充好权重的模型移动到指定设备上，准备进行计算。
+  
+  **2. `predict_sentiment` 函数**
+  
+  这个函数是执行单次情感预测的核心，封装了从原始文本到最终情感结果的全过程。
+  
+  *   `model.eval()`: **必须**在预测前调用。它将模型切换到评估模式，关闭Dropout等层（虽然我们这个简单模型没有），确保预测结果是确定性的。
+  *   **文本预处理流程**:
+      1.  `tokenized = [tok.text.lower() for tok in nlp.tokenizer(sentence)]`: 使用与训练时完全相同的`spaCy`分词器对输入句子进行分词，并转换为小写，以匹配词汇表的构建方式。
+      2.  `indexed = [...]`: 这是将词元列表转换为索引列表的关键。
+          *   `unk_token_idx = text_field.vocab.stoi[text_field.unk_token]`: 我们首先获取未知词`<unk>`的索引。
+          *   `text_field.vocab.stoi.get(t, unk_token_idx)`: 我们使用字典的`.get()`方法。对于每个词元`t`，它会尝试在词汇表`stoi`中查找其索引。如果**找到了**，就返回对应的索引；如果**找不到**（即这是一个训练时未见过的词），它不会报错，而是会返回我们指定的默认值——`unk_token_idx`。这使得我们的预测函数对任何新词都具有鲁棒性。
+  *   **转换为张量**:
+      *   `tensor = torch.LongTensor(indexed).to(config.DEVICE)`: 将索引列表转换为PyTorch张量，并移动到指定设备。
+      *   `tensor = tensor.unsqueeze(0)`: **关键步骤**。我们的模型期望的输入形状是 `[batch_size, sequence_length]`。由于我们现在只预测一个句子，`batch_size`为1。`.unsqueeze(0)`在张量的第0个维度前增加一个维度，使其形状从`[seq_len]`变为`[1, seq_len]`，以符合模型的输入要求。
+  *   **执行预测**:
+      *   `with torch.no_grad()`: 同样，在预测时必须使用此上下文管理器来关闭梯度计算，以获得最佳性能。
+      *   `prediction = torch.sigmoid(model(tensor))`: 将准备好的张量送入模型，得到logits输出，然后通过`sigmoid`函数将其转换为`(0, 1)`范围内的概率。
+  *   **解析结果**:
+      *   `prediction.item()`: 将最终的概率张量（只含一个元素）转换为一个标准的Python浮点数。
+      *   根据概率值是否大于0.5来判断情感类别，并格式化输出，同时附上模型给出的置信度分数。
+  
+  **3. 主执行块 (`if __name__ == '__main__':`)**
+  * 这个部分模拟了一个真实的调用场景。它首先加载模型和词汇表，然后定义了几个不同情感色彩的样本文本，并逐一调用`predict_sentiment`函数来展示我们从零开始训练的模型的预测能力。
+  
+    
+
+### **项目总结与最终笔记**
+
+#### **项目回顾**
+
+我们经历了一个清晰、完整的深度学习项目生命周期，每一步都聚焦于核心和基础：
+
+1.  **环境搭建与项目结构**: 我们建立了一个模块化的、可维护的项目框架，这是所有优秀软件工程的起点。
+2.  **数据处理 (`data_loader.py`)**:
+    *   使用`torchtext`和`spaCy`完成了高效、标准化的文本预处理。
+    *   **核心特点**: 我们**从零开始**构建了词汇表，**没有使用任何预训练的词向量**。这使得我们的模型必须完全依赖训练数据来学习词语的意义。
+    *   创建了`BucketIterator`，通过智能批处理极大地优化了对变长序列的处理效率。
+3.  **模型构建 (`model.py`)**:
+    *   定义了一个极简的`BasicRNNClassifier`，它只包含三个核心部分：一个**随机初始化**的嵌入层、一个**单向单层**的RNN层和一个线性输出层。
+    *   这个简单的结构让我们能够最清晰地理解信息是如何在RNN中按时间步单向流动的。
+4.  **训练与评估 (`train.py`)**:
+    *   将所有超参数集中管理在`config.py`中。
+    *   实现了标准的PyTorch训练循环，包含了“训练五步法”（梯度清零、前向传播、计算损失、反向传播、权重更新）。
+    *   实现了在`torch.no_grad()`环境下的高效评估。
+    *   通过**模型检查点（Checkpointing）**机制，确保我们总是保存和使用在验证集上表现最佳的模型。
+5.  **可视化 (`train.py` & `matplotlib`)**:
+    *   通过实时绘制损失曲线，我们获得了监控模型学习状态的直观工具，能够清晰地看到一个“从零开始”的模型是如何逐步收敛的。
+6.  **推理与部署 (`predict.py`)**:
+    *   展示了如何加载已保存的模型和对应的词汇表，对全新的、未见过的数据进行预测，完成了一个从训练到应用的完整闭环。
+
+#### **从这个基础模型我们学到了什么？**
+
+*   **端到端学习**: 我们亲眼见证了一个神经网络在没有任何先验语言知识的情况下，仅通过观察大量的“正面/负面”评论样本，就能够自己学会区分词语的情感色彩（通过`nn.Embedding`层的权重更新），并理解词语顺序对情感的影响（通过`nn.RNN`层的状态传递）。
+*   **RNN的核心机制**: 我们理解了隐藏状态（hidden state）是如何作为一种“记忆”，将序列中之前的信息一步步传递到未来的。
+*   **PyTorch工作流**: 我们掌握了使用PyTorch进行一个完整NLP项目所需的核心组件和标准流程。
+
+#### **未来可改进的方向**
+
+这个基础模型是我们通往更广阔NLP世界的完美起点。当您完全掌握了这个模型的原理后，可以尝试以下几个方向来构建更强大的模型：
+
+1.  **利用先验知识**:
+    *   **预训练词向量 (Pre-trained Word Embeddings)**: 正如我们之前的讨论，将`nn.Embedding`层的初始权重替换为使用GloVe或Word2Vec等预训练好的词向量，可以给模型一个极好的起点，通常能更快地收敛并达到更好的性能，尤其是在训练数据不那么庞大的时候。
+
+2.  **增强模型结构**:
+    *   **双向RNN (Bidirectional RNN)**: 将`bidirectional`参数设为`True`。这能让模型在处理每个词时，同时考虑到它左边和右边的上下文信息，对于很多NLP任务都能带来显著提升。
+    *   **深度RNN (Deep RNN)**: 将`n_layers`参数设置为大于1的数（如2或3）。通过堆叠RNN层，模型可以学习到更深层次、更抽象的特征表示。
+
+3.  **使用更先进的循环单元**:
+    *   **LSTM (长短期记忆网络)**: 将`nn.RNN`替换为`nn.LSTM`。LSTM引入了精巧的“门控”机制，能更有效地学习和记忆序列中的长期依赖关系，是解决梯度消失问题的经典方案。
+    *   **GRU (门控循环单元)**: 将`nn.RNN`替换为`nn.GRU`。GRU是LSTM的一个高效变体，参数更少，训练更快，但在许多任务上能达到与LSTM相近的性能。
+
+您已经成功地搭建了最重要的一块基石。现在，您可以充满信心地去探索这些更高级的技术了！恭喜您完成了这个项目！
