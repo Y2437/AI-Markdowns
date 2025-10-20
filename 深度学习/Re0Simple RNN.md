@@ -860,15 +860,25 @@ def evaluate(model, iterator, criterion):
   
   ---
   
-  ### **第四部分 / 知识点二: 编写预测函数与加载模型**
+  ### **第您说得完全正确！这是一个至关重要的同步修改。我们的 `data_loader.py` 现在返回的是 `vocab` 对象和 `DataLoader`，所以 `predict.py` 也必须做出相应的调整才能正确加载和使用词汇表。
+  
+  之前的笔记是基于 `torchtext.legacy` 的 `Field` 对象，现在我们需要将它完全更新为使用现代 `torchtext` 返回的 `Vocab` 对象。
+  
+  做得好！这种对代码一致性的关注是优秀工程师的标志。
+  
+  ---
+  
+  ### **第四部分 / 知识点二: 编写预测函数与加载模型 (现代API版)**
   
   #### **代码块**
   
-  **`src/predict.py`**
+  **`src/predict.py`** (修正版)
+  
   ```python
   import torch
   import spacy
   from model import BasicRNNClassifier
+  from data_loader import get_imdb_data_and_loaders # <-- 函数名已更新
   import config
   
   try:
@@ -877,7 +887,7 @@ def evaluate(model, iterator, criterion):
       print("SpaCy 'en_core_web_sm' model not found. Please run 'python -m spacy download en_core_web_sm'")
       nlp = None
   
-  def predict_sentiment(sentence, model, text_field):
+  def predict_sentiment(sentence, model, vocab): # <-- 参数名已更新
       if nlp is None:
           return "Error: SpaCy model not loaded."
         
@@ -885,8 +895,9 @@ def evaluate(model, iterator, criterion):
     
       tokenized = [tok.text.lower() for tok in nlp.tokenizer(sentence)]
       
-      unk_token_idx = text_field.vocab.stoi[text_field.unk_token]
-      indexed = [text_field.vocab.stoi.get(t, unk_token_idx) for t in tokenized]
+      # v-- 使用新的vocab对象和pipeline来处理文本
+      text_pipeline = lambda x: vocab(x)
+      indexed = text_pipeline(tokenized)
     
       tensor = torch.LongTensor(indexed).to(config.DEVICE)
       tensor = tensor.unsqueeze(0)
@@ -902,15 +913,16 @@ def evaluate(model, iterator, criterion):
   
   def load_model_and_vocab():
       print("Loading vocabulary...")
-      from data_loader import get_imdb_loaders
-      TEXT, _, _, _, _ = get_imdb_loaders(config.BATCH_SIZE, config.DEVICE)
+      # v-- 调用新函数，并只接收我们需要的vocab对象
+      vocab, _, _, _ = get_imdb_data_and_loaders(config.BATCH_SIZE, config.DEVICE)
     
-      if TEXT is None:
+      if vocab is None:
           print("Failed to load vocabulary.")
           return None, None
         
-      config.INPUT_DIM = len(TEXT.vocab)
-      config.PAD_IDX = TEXT.vocab.stoi[TEXT.pad_token]
+      # v-- 从新的vocab对象获取信息
+      config.INPUT_DIM = len(vocab)
+      config.PAD_IDX = vocab['<pad>']
   
       print("Loading trained model...")
       model = BasicRNNClassifier(
@@ -930,72 +942,76 @@ def evaluate(model, iterator, criterion):
           
       model.to(config.DEVICE)
     
-      return model, TEXT
+      return model, vocab # <-- 返回正确的vocab对象
   
   if __name__ == '__main__':
-      trained_model, text_field = load_model_and_vocab()
+      trained_model, vocab = load_model_and_vocab() # <-- 变量名已更新
     
-      if trained_model and text_field:
+      if trained_model and vocab:
           print("\nModel loaded successfully. You can now enter sentences for sentiment analysis.")
         
           review1 = "This film is absolutely fantastic! The acting was superb and the plot was gripping."
           review2 = "I've never been so bored in my life. The movie was slow, predictable, and a complete waste of time."
           review3 = "The movie was okay, not great but not terrible either."
+          review4 = "A truly unknown masterpiece that few have seen." # 包含未知词
         
           print(f"\nReview: '{review1}'")
-          print(f"Sentiment: {predict_sentiment(review1, trained_model, text_field)}")
+          print(f"Sentiment: {predict_sentiment(review1, trained_model, vocab)}") # <-- 传入正确的vocab
         
           print(f"\nReview: '{review2}'")
-          print(f"Sentiment: {predict_sentiment(review2, trained_model, text_field)}")
+          print(f"Sentiment: {predict_sentiment(review2, trained_model, vocab)}")
         
           print(f"\nReview: '{review3}'")
-          print(f"Sentiment: {predict_sentiment(review3, trained_model, text_field)}")
-  
+          print(f"Sentiment: {predict_sentiment(review3, trained_model, vocab)}")
+          
+          print(f"\nReview: '{review4}'")
+          print(f"Sentiment: {predict_sentiment(review4, trained_model, vocab)}")
   ```
   
   ---
   
   #### **详细解释**
   
+  让我们来剖析一下所有为了适配现代API而做出的关键修改。
+  
   **1. `load_model_and_vocab` 函数**
   
-  这个函数负责所有模型加载前的准备工作，确保推理环境与训练环境完全一致。
-  
-  *   **加载`TEXT`字段 (词汇表)**:
-      *   这是至关重要的一步。在推理时，我们需要将新的文本句子转换成模型训练时学习到的那个**特定的数字索引**。这个“词 -> 索引”的映射关系就存储在`TEXT.vocab`对象中。
-      *   因此，我们必须先通过调用`get_imdb_loaders`来重新构建一次`TEXT`字段和它的词汇表。这确保了推理时和训练时使用完全相同的预处理流程和词汇表。
-  *   **实例化模型**:
-      *   我们创建了一个与训练时**结构完全相同**的`BasicRNNClassifier`实例。所有超参数（如`HIDDEN_DIM`等）都必须和训练时保存的模型完全一致，否则权重将无法正确加载。
-  *   **加载模型权重**:
-      *   `model.load_state_dict(...)`: 这是`torch.save(model.state_dict(), ...)`的配对操作。它会加载文件中保存的参数字典，并将其中的权重和偏置“填充”到我们刚刚创建的、结构相同的模型骨架中。
-      *   `map_location=config.DEVICE`: 这是一个非常实用的参数。它确保了无论模型当初是在GPU还是CPU上训练和保存的，都能被正确地加载到当前配置的设备上。
-      *   `try-except`块：我们用一个错误处理块来包裹加载操作，如果找不到模型文件，会给用户一个清晰的提示，而不是直接报错。
-  *   `model.to(config.DEVICE)`: 将加载并填充好权重的模型移动到指定设备上，准备进行计算。
+  *   **调用新函数**: 我们将`get_imdb_loaders`替换为`get_imdb_data_and_loaders`。
+  *   **接收`vocab`对象**: 新函数直接返回 `vocab` 对象，我们用 `vocab, _, _, _ = ...` 来接收它，忽略我们在这里不需要的`DataLoader`。
+  *   **获取词汇表信息**:
+      *   `config.INPUT_DIM = len(vocab)`: 直接获取`vocab`对象的长度。
+      *   `config.PAD_IDX = vocab['<pad>']`: 直接像字典一样查询`<pad>`的索引。
+      *   这两处修改都比旧版API更简洁、更直观。
+  *   **返回`vocab`**: 函数最后返回 `model` 和 `vocab`。
   
   **2. `predict_sentiment` 函数**
   
-  这个函数是执行单次情感预测的核心，封装了从原始文本到最终情感结果的全过程。
-  
-  *   `model.eval()`: **必须**在预测前调用。它将模型切换到评估模式，关闭Dropout等层（虽然我们这个简单模型没有），确保预测结果是确定性的。
-  *   **文本预处理流程**:
-      1.  `tokenized = [tok.text.lower() for tok in nlp.tokenizer(sentence)]`: 使用与训练时完全相同的`spaCy`分词器对输入句子进行分词，并转换为小写，以匹配词汇表的构建方式。
-      2.  `indexed = [...]`: 这是将词元列表转换为索引列表的关键。
-          *   `unk_token_idx = text_field.vocab.stoi[text_field.unk_token]`: 我们首先获取未知词`<unk>`的索引。
-          *   `text_field.vocab.stoi.get(t, unk_token_idx)`: 我们使用字典的`.get()`方法。对于每个词元`t`，它会尝试在词汇表`stoi`中查找其索引。如果**找到了**，就返回对应的索引；如果**找不到**（即这是一个训练时未见过的词），它不会报错，而是会返回我们指定的默认值——`unk_token_idx`。这使得我们的预测函数对任何新词都具有鲁棒性。
-  *   **转换为张量**:
-      *   `tensor = torch.LongTensor(indexed).to(config.DEVICE)`: 将索引列表转换为PyTorch张量，并移动到指定设备。
-      *   `tensor = tensor.unsqueeze(0)`: **关键步骤**。我们的模型期望的输入形状是 `[batch_size, sequence_length]`。由于我们现在只预测一个句子，`batch_size`为1。`.unsqueeze(0)`在张量的第0个维度前增加一个维度，使其形状从`[seq_len]`变为`[1, seq_len]`，以符合模型的输入要求。
-  *   **执行预测**:
-      *   `with torch.no_grad()`: 同样，在预测时必须使用此上下文管理器来关闭梯度计算，以获得最佳性能。
-      *   `prediction = torch.sigmoid(model(tensor))`: 将准备好的张量送入模型，得到logits输出，然后通过`sigmoid`函数将其转换为`(0, 1)`范围内的概率。
-  *   **解析结果**:
-      *   `prediction.item()`: 将最终的概率张量（只含一个元素）转换为一个标准的Python浮点数。
-      *   根据概率值是否大于0.5来判断情感类别，并格式化输出，同时附上模型给出的置信度分数。
+  *   **参数更新**: 函数签名变为 `predict_sentiment(sentence, model, vocab)`，参数名从`text_field`改为`vocab`以准确反映其类型。
+  *   **文本预处理流程 (核心变化)**:
+      *   `tokenized = [tok.text.lower() for tok in nlp.tokenizer(sentence)]`: 这一步保持不变，我们仍然需要分词。
+      *   **旧方法**:
+          ```python
+          unk_token_idx = text_field.vocab.stoi[text_field.unk_token]
+          indexed = [text_field.vocab.stoi.get(t, unk_token_idx) for t in tokenized]
+          ```
+          这是旧`Field`对象处理未知词的方式，比较繁琐。
+      *   **新方法**:
+          ```python
+          text_pipeline = lambda x: vocab(x)
+          indexed = text_pipeline(tokenized)
+          ```
+          这是**更优雅、更强大**的方式。还记得我们在`data_loader.py`中设置了`vocab.set_default_index(vocab['<unk>'])`吗？这个设置在这里发挥了关键作用。
+          *   当我们调用 `vocab(tokenized)` 时，`vocab`对象会遍历`tokenized`列表中的每一个词。
+          *   如果词在词汇表中，它就返回对应的索引。
+          *   如果词**不在**词汇表中，它会自动返回我们之前设置好的**默认索引**，也就是`<unk>`的索引。
+          *   整个过程一步到位，代码更简洁，逻辑更清晰。
   
   **3. 主执行块 (`if __name__ == '__main__':`)**
-  * 这个部分模拟了一个真实的调用场景。它首先加载模型和词汇表，然后定义了几个不同情感色彩的样本文本，并逐一调用`predict_sentiment`函数来展示我们从零开始训练的模型的预测能力。
   
-    
+  *   **变量名同步**: 我们将所有用到词汇表对象的变量名从`text_field`更新为`vocab`，以保持代码的一致性和可读性。
+  *   **添加未知词测试**: 我额外增加了一个包含未知词（"masterpiece"很可能因为词频限制未被收入词汇表）的`review4`，来展示我们新的处理流程能够稳健地处理任何输入。
+  
+  通过这些修改，我们的预测脚本现在与整个项目的数据处理流程完全同步，并且代码因为利用了现代`torchtext` API的特性而变得更加简洁和健壮。
 
 ### **项目总结与最终笔记**
 
