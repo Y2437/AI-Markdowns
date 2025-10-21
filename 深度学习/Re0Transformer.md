@@ -1,1066 +1,1329 @@
-### **构建总纲：使用PyTorch从零构建文本生成Transformer**
-
-我们的目标是构建一个能够根据输入文本（prompt）生成新文本序列的Transformer模型。为了实现这个目标，我们将分步完成以下几个核心模块的构建和学习，每个模块都会作为后续笔记中的一个独立部分进行详细阐述：
-
-**第一部分：项目概述与环境准备**
-*   **目标定义：** 明确我们要构建的是一个什么样的模型（例如，一个基于字符或单词的生成模型），以及它的基本工作原理。
-*   **环境搭建：** 介绍所需要安装的Python库（`torch`, `torchtext`, `matplotlib`, `tqdm`, `numpy`等），并展示如何导入它们。
-*   **全局设置：** 设置设备（GPU或CPU），并配置随机种子以确保实验的可复现性。
-
-**第二部分：数据处理与管道搭建**
-*   **数据源：** 选择一个合适的文本数据集作为我们模型的训练材料。
-*   **文本分词 (Tokenization)：** 将原始的文本字符串分解成模型可以理解的最小单元（Token），例如单词或字符。
-*   **构建词汇表 (Vocabulary)：** 创建一个从Token到数字索引（index）的双向映射。这是将文本数据转换为数字格式的关键一步。
-*   **数据集类 (Dataset Class)：** 使用PyTorch的`Dataset`类来封装我们的文本数据，定义获取单个数据样本的逻辑。
-*   **数据加载器 (DataLoader)：** 利用PyTorch的`DataLoader`来高效地实现数据的批量化（Batching）、填充（Padding）和打乱（Shuffling），为模型训练做好最终准备。
-
-**第三部分：Transformer模型架构详解**
-*   **核心理念：** 简要回顾Transformer相比于RNN/LSTM在处理序列数据上的优势，特别是其并行计算能力。
-*   **位置编码 (Positional Encoding)：** 详细解释为什么Transformer需要位置编码来理解序列的顺序信息，并展示其数学实现。
-*   **多头自注意力机制 (Multi-Head Self-Attention)：** 这是Transformer的心脏。我们将从单个头的注意力（Scaled Dot-Product Attention）讲起，逐步构建到多头注意力，并解释其如何让模型关注序列中的不同部分。
-*   **前馈神经网络 (Feed-Forward Network)：** 解释在每个Transformer块中注意力层之后的前馈网络的作用。
-*   **构建解码器模块 (Decoder Block)：** 将位置编码、多头自注意力（带有掩码）、前馈网络和层归一化（Layer Normalization）等组件组合成一个完整的Transformer解码器块。
-*   **完整的生成模型：** 将多个解码器块堆叠起来，并添加词嵌入层（Embedding Layer）和最终的线性输出层，构成我们最终的文本生成模型。
-
-**第四部分：训练模块的构建**
-*   **定义超参数：** 设置学习率、批次大小、训练轮数（Epochs）、模型维度等所有可调参数。
-*   **实例化组件：** 创建模型、损失函数（如交叉熵损失 `CrossEntropyLoss`）和优化器（如 `Adam`）的实例。
-*   **训练循环 (Training Loop)：** 编写核心的训练逻辑。这包括：
-    *   从DataLoader获取数据批次。
-    *   将数据送入模型进行前向传播。
-    *   计算损失。
-    *   执行反向传播和梯度下降。
-    *   清空梯度。
-*   **评估循环 (Evaluation Loop)：** 编写在验证集上评估模型性能的逻辑，此过程不计算梯度以节省资源。
-
-**第五部分：实时训练过程可视化**
-*   **目标：** 监控模型在训练过程中的性能变化，例如损失函数值的下降趋势。
-*   **工具：** 主要使用 `matplotlib` 库。
-*   **实现：** 在每个训练轮次（Epoch）结束后，记录下训练集和验证集的平均损失，并使用 `matplotlib` 动态绘制损失曲线图，帮助我们直观地判断模型是否在有效学习，以及是否存在过拟合现象。
-
-**第六部分：文本生成（推理）模块**
-*   **核心任务：** 如何使用训练好的模型来生成新的文本。
-*   **生成逻辑：** 编写一个函数，接收一个起始文本（prompt）作为输入。
-*   **解码策略：**束搜索
-
-
-**第七部分：模型保存、加载与整合**
-*   **持久化：** 学习如何使用 `torch.save` 保存训练好的模型权重，以及如何使用 `torch.load` 来加载它们，以便未来直接使用或继续训练。
-*   **项目整合：** 将以上所有模块（数据处理、模型定义、训练、生成）整合到一个主脚本中，形成一个完整、可执行的文本生成项目。
+这份指南将具备以下特点：
+*   **纯粹的PyTorch实现**：不使用任何高级封装（如`nn.Transformer`），我们将从`nn.Module`和`nn.Linear`等基础组件构建一切。
+*   **从零处理数据**：不使用预训练词向量和外部NLP库（如Spacy）进行分词。我们将实现自己的字符级词汇表，并处理原始文本。
+*   **任务导向**：目标是训练一个能够生成文本的模型。
+*   **工程化结构**：代码将被组织在清晰的项目结构中，而不是一个单一的脚本。
+*   **分步、详尽的阐述**：我将先提供总纲，然后逐部分输出。每个代码部分都将包含 **(1) 代码流程详述**，**(2) 带注释的代码实现**，以及 **(3) 对代码的逐行/逐块解释**。
 
 ---
 
-### **第一部分：项目概述与环境准备**
+### **从零开始使用PyTorch实现Transformer：总纲**
 
-在这一部分，我们将为整个项目打下基础。我们会明确项目的目标，安装并导入所有必需的Python库，并进行一些全局设置，以确保代码的稳定性和可复现性。
+#### **第零部分：项目搭建与数据准备**
+*   **0.1 项目结构**：定义一个清晰、可扩展的文件和目录结构。
+*   **0.2 数据集**：选择并获取一个简单、易于处理的公开文本数据集（我们将使用 "tiny-shakespeare"）。
+*   **0.3 字符级词汇表**：构建一个从零开始的词汇表类，负责将字符映射到整数索引，反之亦然。
+*   **0.4 数据集与数据加载器**：
+    *   创建自定义的PyTorch `Dataset` 类，用于将长文本切分为输入/输出样本对。
+    *   配置 `DataLoader`，并实现一个自定义的 `collate_fn` 来处理批处理中的序列填充（Padding）。
+*   **0.5 配置文件**：创建一个 `config.py` 文件来统一管理所有超参数。
 
-#### **1. 目标定义 (Project Goal)**
+#### **第一部分：构建Transformer的核心组件**
+*   **1.1 输入层：词嵌入与位置编码**
+    *   实现 `TokenEmbedding` 模块。
+    *   实现 `PositionalEncoding` 模块，使用sin/cos函数生成固定的位置向量。
+*   **1.2 多头自注意力机制 (Multi-Head Attention)**
+    *   实现一个完整的、通用的多头注意力模块，它将是编码器和解码器的核心。
+*   **1.3 位置全连接前馈网络 (Position-wise Feed-Forward Network)**
+    *   实现FFN模块。
+*   **1.4 编码器层 (Encoder Layer)**
+    *   将多头自注意力和FFN与残差连接、层归一化组合成一个完整的编码器层。
+*   **1.5 解码器层 (Decoder Layer)**
+    *   组合带掩码的多头自注意力、编码器-解码器注意力、FFN以及辅助模块，构成一个完整的解码器层。
 
-我们的核心目标是利用PyTorch构建一个基于Transformer架构的文本生成模型。具体来说，我们将构建一个 **仅包含解码器（Decoder-only）** 的Transformer模型，这与GPT（Generative Pre-trained Transformer）系列的早期架构类似。
+#### **第二部分：组装完整的Transformer模型**
+*   **2.1 编码器 (Encoder)**：堆叠N个编码器层。
+*   **2.2 解码器 (Decoder)**：堆叠N个解码器层。
+*   **2.3 完整的Transformer模型**：
+    *   将编码器、解码器、输入层和最终的输出线性层整合到一个 `Transformer` 类中。
+    *   实现模型的前向传播逻辑和生成后续位置掩码的辅助函数。
 
-该模型将以 **字符级别（Character-level）** 的方式学习文本数据。这意味着模型学习的最小单位是单个字符，而不是单词。这样做的好处是词汇表规模小且固定，不会遇到“未知词”（Out-of-Vocabulary）问题，非常适合用于演示和学习核心概念。
+#### **第三部分：模型训练**
+*   **3.1 训练脚本 (`train.py`) 的结构**：
+    *   设置设备（CPU/GPU）、加载数据、初始化模型。
+    *   定义优化器和损失函数（带填充忽略的交叉熵）。
+*   **3.2 训练循环**：
+    *   实现完整的训练循环逻辑，包括数据迭代、模型前向传播、损失计算、反向传播和参数更新。
+    *   添加训练过程的可视化（打印损失）。
+*   **3.3 模型保存**：在训练结束后保存模型权重。
 
-模型的任务是：给定一段起始文本（称为"prompt"），模型需要预测下一个最可能的字符，然后将这个新生成的字符加入到输入中，再次预测下一个，如此循环，最终生成一段完整的、风格与训练数据相似的新文本。
-
-#### **2. 环境搭建 (Environment Setup)**
-
-首先，我们需要导入将要使用的所有Python库。这些库各司其职，共同支撑起整个项目的框架。
-
-```python
-import torch
-import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
-import numpy as np
-import math
-import random
-import matplotlib.pyplot as plt
-from tqdm import tqdm
-```
-
-上述代码导入了我们项目所需的全部基本库：
-*   `torch` 和 `torch.nn`: 这是PyTorch的核心，提供了张量（Tensors）计算和神经网络层（如线性层、嵌入层等）的构建模块。
-*   `torch.utils.data`: 提供了 `Dataset` 和 `DataLoader` 这两个强大的工具，它们将帮助我们构建高效的数据处理管道。
-*   `numpy`: 虽然PyTorch有自己的张量，但NumPy在数据预处理和某些数学运算上仍然非常方便，并且它们之间可以轻松转换。
-*   `math`: 用于一些基础的数学计算，例如在位置编码中会用到。
-*   `random`: 用于设置随机种子。
-*   `matplotlib.pyplot`: 这是Python中最流行的绘图库，我们将用它来实时绘制损失曲线，监控训练过程。
-*   `tqdm`: 一个非常方便的库，可以为我们的训练循环创建一个可视化的进度条，让我们能直观地看到训练的进度。
-
-#### **3. 全局设置 (Global Settings)**
-
-这部分代码用于配置我们的运行环境，主要做两件事：选择计算设备（CPU或GPU）和设定随机种子以保证实验的可复现性。
-
-```python
-def set_seed(seed):
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
-        torch.cuda.manual_seed_all(seed)
-        torch.backends.cudnn.deterministic = True
-        torch.backends.cudnn.benchmark = False
-
-set_seed(42)
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Using device: {device}")
-```
-
-代码解释：
-*   `set_seed(seed)` 函数：我们定义了一个函数来统一设置随机种子。 在深度学习实验中，很多操作都具有随机性，比如模型权重的初始化、数据的打乱（shuffle）等。 如果不固定随机种子，每次运行同样的代码都可能会得到略微不同的结果，这不利于调试和比较不同实验的效果。 这个函数为`random`、`numpy`和`torch`（包括CPU和GPU）都设置了相同的种子。
-*   `torch.backends.cudnn.deterministic = True` 和 `torch.backends.cudnn.benchmark = False`: 这两行是针对使用NVIDIA GPU（通过CUDA和cuDNN库）时的额外设置。第一行确保cuDNN使用确定性的卷积算法，第二行则关闭了cuDNN的自动调优功能（该功能会根据输入尺寸选择最快的算法，但可能导致不确定性）。
-*   `set_seed(42)`: 我们选择一个具体的数字（42是一个常用的惯例）作为我们的种子并调用函数。
-*   `device = torch.device(...)`: 这行代码会自动检测当前环境是否有可用的NVIDIA GPU。如果有（`torch.cuda.is_available()` 返回 `True`），它就会将 `device` 设置为 "cuda"，这样后续的张量和模型都可以被发送到GPU上进行高速计算。否则，它将使用 "cpu"。
-*   最后，我们打印出当前使用的设备，以便确认我们的设置是否生效。
-
-
+#### **第四部分：文本生成（推理）**
+*   **4.1 生成脚本 (`generate.py`) 的结构**：
+    *   加载已保存的模型和词汇表。
+*   **4.2 实现生成函数**：
+    *   实现自回归（auto-regressive）的解码过程。
+    *   使用贪心搜索（Greedy Search）策略从概率分布中选择下一个词元。
+    *   展示如何使用训练好的模型生成新的文本。
+    好的，我们正式开始这个项目。
 
 ---
 
-### **第二部分：数据处理与管道搭建**
+### **第零部分：项目搭建与数据准备**
 
-在这一部分，我们将把原始的文本字符串，通过分词、构建词汇表、定义数据集和使用数据加载器等一系列步骤，转换为PyTorch模型可以直接使用的、批量化的张量（Tensors）。
+在编写任何模型代码之前，我们需要建立一个稳健的项目结构，并准备好我们的数据管道。这是确保项目可维护、可复现和可扩展的关键第一步。我们将从零开始，包括下载数据、构建我们自己的字符级词汇表，以及设置PyTorch的`Dataset`和`DataLoader`。
 
-#### **1. 数据源与预处理 (Data Source & Pre-processing)**
+#### **0.1 项目结构**
 
-首先，我们需要一份用于训练的文本数据。为了让笔记清晰易懂，我们不使用庞大复杂的数据集，而是直接在代码中定义一小段文本。这样可以让我们完全聚焦于处理流程本身。在实际项目中，您可以轻松地将这里的文本替换为您从文件中读出的任何内容。
+##### **代码流程详述**
+一个良好的项目结构能够将不同功能的代码分离开来，使得逻辑更加清晰。我们将创建以下目录和文件：
+1.  **`transformer-from-scratch/`**: 项目的根目录。
+2.  **`config.py`**: 一个中心化的配置文件，用于存放所有的超参数，如批次大小、学习率、模型维度等。这使得调整实验参数变得非常容易。
+3.  **`data/`**: 一个用于存放原始数据集文件的目录。
+4.  **`utils.py`**: 存放辅助工具，我们自定义的词汇表类将放在这里。
+5.  **`dataset.py`**: 存放数据处理相关的代码，包括PyTorch的`Dataset`子类和创建`DataLoader`的函数。
+6.  **`model.py`**: 存放所有与Transformer模型结构相关的`nn.Module`子类。
+7.  **`train.py`**: 训练模型的主脚本。
+8.  **`generate.py`**: 使用训练好的模型进行文本生成（推理）的脚本。
 
-```python
-# For demonstration purposes, we use a small, simple text.
-# In a real-world scenario, you would load this from a file.
-raw_text = """
-It is not the critic who counts; not the man who points out how the strong man stumbles, 
-or where the doer of deeds could have done them better. 
-The credit belongs to the man who is actually in the arena, whose face is marred by dust and sweat and blood; 
-who strives valiantly; who errs, who comes short again and again, 
-because there is no effort without error and shortcoming; 
-but who does actually strive to do the deeds; who knows the great enthusiasms, the great devotions; 
-who spends himself in a worthy cause; 
-who at the best knows in the end the triumph of high achievement, 
-and who at the worst, if he fails, at least fails while daring greatly, 
-so that his place shall never be with those cold and timid souls who neither know victory nor defeat.
-"""
-
-# Basic preprocessing: convert to lowercase to reduce vocabulary size
-raw_text = raw_text.lower()
+执行以下命令来创建这个结构：
+```bash
+mkdir transformer-from-scratch
+cd transformer-from-scratch
+mkdir data
+touch config.py utils.py dataset.py model.py train.py generate.py
 ```
 
-代码解释：
-*   我们定义了一个多行字符串 `raw_text` 作为我们的全部训练数据。
-*   `raw_text = raw_text.lower()`: 这是一个简单但非常有效的预处理步骤。通过将所有文本转换为小写，我们减少了词汇表的大小（例如，"The" 和 "the" 会被视为同一个词/字符集的一部分），这有助于模型更快地学习。
+---
 
-#### **2. 分词与构建词汇表 (Tokenization & Vocabulary)**
+#### **0.2 数据集**
 
-由于我们构建的是一个字符级别的模型，所以“分词”（Tokenization）的过程就是获取文本中所有独特的字符。然后，我们需要创建一个“词汇表”（Vocabulary），它本质上是两个映射字典：一个将每个独特字符映射到一个唯一的整数索引，另一个则反向映射。
+##### **代码流程详述**
+我们将使用"tiny-shakespeare"数据集，这是一个包含了莎士比亚部分作品的纯文本文件。它足够小，可以在单张消费级GPU上快速训练，同时又足够复杂，能够展示模型的学习能力。
+我们将使用`wget`命令从网上下载这个数据集，并将其存放在`data/`目录中。
 
-```python
-chars = sorted(list(set(raw_text)))
-vocab_size = len(chars)
-
-stoi = {ch: i for i, ch in enumerate(chars)}
-itos = {i: ch for i, ch in enumerate(chars)}
-
-encode = lambda s: [stoi[c] for c in s]
-decode = lambda l: ''.join([itos[i] for i in l])
-
-print(f"Vocabulary: {''.join(chars)}")
-print(f"Vocabulary size: {vocab_size}")
-
-# Example of encoding and decoding
-encoded_sample = encode("hello world")
-decoded_sample = decode(encoded_sample)
-print(f"Sample text: 'hello world'")
-print(f"Encoded sample: {encoded_sample}")
-print(f"Decoded sample: '{decoded_sample}'")
+##### **代码实现**
+在您的终端中，确保您位于`transformer-from-scratch`根目录下，然后执行：
+```bash
+wget -O data/tiny_shakespeare.txt https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt
 ```
-代码解释：
-*   `chars = sorted(list(set(raw_text)))`: 这一行代码完成了两件事。`set(raw_text)` 会找出文本中所有的不重复字符。`list()` 将其转换为列表，`sorted()` 对其进行排序。排序是为了保证每次运行代码时，字符到索引的映射都是固定的，这对于实验的可复现性至关重要。
-*   `vocab_size = len(chars)`: 词汇表的大小就是我们独特字符的数量。这个数值对于定义模型嵌入层和输出层的维度至关重要。
-*   `stoi` (string-to-integer) 和 `itos` (integer-to-string): 我们使用字典推导式创建了两个映射字典。`stoi` 用于将字符转换为数字，`itos` 用于将数字转换回字符。
-*   `encode` 和 `decode`: 我们定义了两个辅助的lambda函数。`encode` 接收一个字符串，返回一个由整数索引组成的列表。`decode` 接收一个整数列表，返回原始的字符串。这是后续处理数据和检视模型输出时非常方便的工具。
 
-#### **3. 创建数据集类 (PyTorch Dataset Class)**
+##### **代码解释**
+*   `wget`: 一个常用的命令行工具，用于从网络上下载文件。
+*   `-O data/tiny_shakespeare.txt`: 这个选项指定了输出文件的路径和名称。我们将下载的文件直接保存到`data`目录下，并命名为`tiny_shakespeare.txt`。
+*   `https://.../input.txt`: 这是"tiny-shakespeare"数据集的原始URL。
 
-现在，我们需要一种标准的方式来组织数据，告诉PyTorch如何获取单个训练样本。PyTorch通过 `torch.utils.data.Dataset` 类来实现这一点。我们需要创建一个子类，并实现两个核心方法：`__len__` 和 `__getitem__`。
+---
 
-对于语言模型训练，一个样本通常包含两部分：一个输入序列 `x` 和一个目标序列 `y`。`y` 是 `x` 向右移动一个位置的结果。例如，如果输入 `x` 是 "hello"，那么模型的目标 `y` 就是 "ello"。
+#### **0.3 字符级词汇表**
 
+##### **代码流程详述**
+由于我们不使用外部库进行分词，最直接的方法是创建一个字符级别的词汇表。这意味着模型的基本单位是单个字符（字母、标点、空格等），而不是单词。
+我们的词汇表类 `CharacterVocabulary` 需要实现以下功能：
+1.  在初始化时，读取整个文本文件，找出所有不重复的字符。
+2.  创建两个核心的映射字典：
+    *   `stoi` (string-to-index): 将每个字符映射到一个唯一的整数索引。
+    *   `itos` (index-to-string): 将整数索引映射回对应的字符。
+3.  包含一些特殊的词元（token）：
+    *   `<PAD>`: 填充符，用于将批次中不同长度的序列填充到相同长度。其索引通常为0。
+    *   `<SOS>`: 序列起始符 (Start of Sequence)，在生成任务中标志着解码的开始。
+    *   `<EOS>`: 序列结束符 (End of Sequence)，标志着一个序列的结束。
+    *   `<UNK>`: 未知字符符。虽然在字符级模型中，测试集不太可能出现训练集没有的字符，但包含它是一个好习惯。
+4.  提供`encode`和`decode`方法，用于在字符序列和整数索引序列之间进行转换。
+
+##### **代码实现 (`utils.py`)**
 ```python
-# Hyperparameters for data processing
-block_size = 8 
+# utils.py
 
-class TextDataset(Dataset):
-    def __init__(self, text, block_size):
-        self.block_size = block_size
-        self.data = torch.tensor(encode(text), dtype=torch.long)
+class CharacterVocabulary:
+    """
+    Manages the mapping between characters and integer indices.
+    """
+    def __init__(self, text):
+        # Special tokens
+        self.pad_token = "<PAD>"
+        self.sos_token = "<SOS>"
+        self.eos_token = "<EOS>"
+        self.unk_token = "<UNK>"
+        
+        # Find all unique characters in the text
+        self.chars = sorted(list(set(text)))
+        
+        # Create the vocabulary and mappings
+        self.vocab = [self.pad_token, self.sos_token, self.eos_token, self.unk_token] + self.chars
+        
+        # String-to-index and index-to-string mappings
+        self.stoi = {char: i for i, char in enumerate(self.vocab)}
+        self.itos = {i: char for i, char in enumerate(self.vocab)}
+
+        # Get indices for special tokens
+        self.pad_idx = self.stoi[self.pad_token]
+        self.sos_idx = self.stoi[self.sos_token]
+        self.eos_idx = self.stoi[self.eos_token]
+        self.unk_idx = self.stoi[self.unk_token]
 
     def __len__(self):
+        # Returns the total size of the vocabulary
+        return len(self.vocab)
+
+    def encode(self, text):
+        # Converts a string of text into a list of integer indices
+        return [self.stoi.get(char, self.unk_idx) for char in text]
+
+    def decode(self, indices):
+        # Converts a list of integer indices back into a string
+        return "".join([self.itos.get(i, self.unk_token) for i in indices])
+
+```
+
+##### **代码解释**
+*   **`__init__(self, text)`**:
+    *   `self.pad_token`, `...`: 定义了我们将要使用的四个特殊字符的字符串表示。
+    *   `self.chars = sorted(list(set(text)))`: 这一行是核心。`set(text)`找出所有唯一的字符，`list()`将其转换为列表，`sorted()`确保每次运行时字符的顺序都是一致的，这对于模型的可复现性至关重要。
+    *   `self.vocab = [...] + self.chars`: 构建完整的词汇表列表。我们将特殊字符放在最前面，这样它们的索引（0, 1, 2, 3）是固定的。
+    *   `self.stoi = ...`, `self.itos = ...`: 使用字典推导式，高效地创建字符到索引和索引到字符的映射。
+    *   `self.pad_idx = ...`: 获取并存储特殊字符的索引，方便后续在代码中直接使用，而不用每次都去查询字典。
+*   **`__len__(self)`**:
+    *   返回词汇表的总大小。这在定义模型的嵌入层和输出层时非常重要。
+*   **`encode(self, text)`**:
+    *   这是一个列表推导式，遍历输入`text`中的每个字符。
+    *   `self.stoi.get(char, self.unk_idx)`: 尝试在`stoi`字典中查找字符`char`。如果找到了，返回其索引；如果没找到（例如，在推理时遇到一个训练时从未见过的字符），则返回`<UNK>`的索引。
+*   **`decode(self, indices)`**:
+    *   同样使用列表推导式，遍历输入的整数索引列表`indices`。
+    *   `self.itos.get(i, self.unk_token)`: 查找索引`i`对应的字符，如果找不到则返回`<UNK>`字符。
+    *   `"".join(...)`: 将解码出的字符列表重新组合成一个字符串。
+
+---
+
+#### **0.4 数据集与数据加载器**
+
+##### **代码流程详述**
+现在我们需要一个方法来将原始的长文本字符串转换成模型可以消费的、一批批的张量（tensors）。这需要两样东西：
+1.  **`torch.utils.data.Dataset`**: 一个自定义的PyTorch `Dataset`类。它的工作是告诉PyTorch如何从数据源中获取**单个**样本。对于文本生成任务，一个样本通常是一对`(输入序列, 目标序列)`。我们将通过在长文本上滑动一个固定大小的窗口来创建这些样本。例如，如果窗口大小（`block_size`）是8，文本是"hello world"，第一个样本的输入就是"hello wo"，目标就是"ello wor"。
+2.  **`torch.utils.data.DataLoader`**: `DataLoader`会包装我们的`Dataset`，并自动地从中抽取小批量（mini-batches）数据，进行打乱（shuffle）等操作。
+
+##### **代码实现 (`dataset.py`)**
+```python
+# dataset.py
+
+import torch
+from torch.utils.data import Dataset, DataLoader
+
+class TextDataset(Dataset):
+    """
+    Custom PyTorch Dataset for creating input/target sequences from a long text.
+    """
+    def __init__(self, text, vocab, block_size):
+        self.vocab = vocab
+        self.block_size = block_size
+        
+        # Encode the entire text into integer indices
+        self.data = self.vocab.encode(text)
+
+    def __len__(self):
+        # The number of possible sequences we can create
+        # We subtract block_size because the last possible sequence starts at len(data) - block_size
         return len(self.data) - self.block_size
 
     def __getitem__(self, idx):
-        x = self.data[idx:idx+self.block_size]
-        y = self.data[idx+1:idx+self.block_size+1]
+        # Grab a chunk of (block_size + 1) characters
+        chunk = self.data[idx : idx + self.block_size + 1]
+        
+        # The first block_size characters are the input
+        x = torch.tensor(chunk[:-1], dtype=torch.long)
+        
+        # The last block_size characters (shifted by one) are the target
+        y = torch.tensor(chunk[1:], dtype=torch.long)
+        
         return x, y
 
-# Instantiate the dataset
-dataset = TextDataset(raw_text, block_size)
-print(f"Total number of samples in the dataset: {len(dataset)}")
-sample_x, sample_y = dataset[0]
-print(f"First sample input (x): {sample_x}")
-print(f"First sample target (y): {sample_y}")
-print(f"Decoded input: '{decode(sample_x.tolist())}'")
-print(f"Decoded target: '{decode(sample_y.tolist())}'")
+def create_dataloader(text, vocab, block_size, batch_size, shuffle=True):
+    """
+    Creates a DataLoader for the text generation task.
+    """
+    dataset = TextDataset(text, vocab, block_size)
+    dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=0, # Can be increased if data loading is a bottleneck
+    )
+    return dataloader
 ```
 
-代码解释：
-*   `block_size = 8`: 这是一个重要的超参数，也称为“上下文长度”（context length）或“序列长度”（sequence length）。它定义了模型在做一次预测时，最多能“看到”多长的历史文本。这里我们设为8，意味着模型将根据前8个字符来预测第9个字符。
-*   `TextDataset(Dataset)`: 我们定义了一个继承自 `torch.utils.data.Dataset` 的类。
-*   `__init__(self, text, block_size)`: 构造函数接收原始文本和 `block_size`。它做的最重要的一件事就是调用我们之前定义的 `encode` 函数，将**全部**文本一次性地转换为一个长长的PyTorch张量 `self.data`。
-*   `__len__(self)`: 这个方法必须返回数据集中样本的总数。由于我们使用滑动窗口的方式创建样本，最后一个可能的起始位置是 `len(self.data) - block_size`。
-*   `__getitem__(self, idx)`: 这是最核心的方法。当我们需要获取第 `idx` 个样本时，这个方法会被调用。
-    *   `x = self.data[idx:idx+self.block_size]`: 它从编码后的数据中切片，提取出长度为 `block_size` 的一段作为输入 `x`。
-    *   `y = self.data[idx+1:idx+self.block_size+1]`: 它提取从 `x` 的第二个位置开始，同样长度的一段作为目标 `y`。这样就构成了 (输入 -> 目标) 的训练对。
-
-#### **4. 创建数据加载器 (PyTorch DataLoader)**
-
-虽然我们有了`Dataset`，但在训练时，我们通常希望分批（batch）次地将数据喂给模型，并且在每个训练周期（epoch）开始时打乱数据顺序。`torch.utils.data.DataLoader` 正是为此而生。
-
-```python
-# Hyperparameters for data loading
-batch_size = 4
-
-train_loader = DataLoader(
-    dataset=dataset,
-    batch_size=batch_size,
-    shuffle=True
-)
-
-# Let's inspect a single batch from the loader
-data_iter = iter(train_loader)
-first_batch_x, first_batch_y = next(data_iter)
-
-print(f"Shape of a single batch input (X): {first_batch_x.shape}")
-print(f"Shape of a single batch target (Y): {first_batch_y.shape}")
-```
-
-代码解释：
-*   `batch_size = 4`: 这是另一个重要的超参数，定义了我们一次性将多少个样本打包在一起送入模型进行训练。
-*   `DataLoader(...)`: 我们实例化了一个 `DataLoader`。
-    *   `dataset=dataset`: 告诉加载器从哪个`Dataset`对象中取数据。
-    *   `batch_size=batch_size`: 设置每个批次的大小。
-    *   `shuffle=True`: 这是非常关键的一步。设置为 `True` 意味着在每个epoch开始前，`DataLoader` 都会随机打乱数据的顺序。这可以防止模型学到数据本身的排列顺序，增强了模型的泛化能力。
-*   `data_iter = iter(train_loader)` 和 `first_batch_x, first_batch_y = next(data_iter)`: 这两行代码模拟了在训练循环中从`DataLoader`获取一个批次数据的过程。
-*   我们打印出这个批次数据的形状。可以看到，输入 `X` 的形状是 `[4, 8]`（`[batch_size, block_size]`），这正是模型所期望的输入格式。
+##### **代码解释**
+*   **`TextDataset` 类**:
+    *   **`__init__(self, text, vocab, block_size)`**:
+        *   存储传入的`vocab`对象和`block_size`（序列长度）。
+        *   `self.data = self.vocab.encode(text)`: 立即将全部文本编码为一长串整数列表，后续将从这个列表中切片。
+    *   **`__len__(self)`**:
+        *   返回数据集中样本的总数。如果总数据长度为N，序列长度为B，那么最后一个有效的起始位置是 `N - 1 - B`。为了简单，我们用 `N - B` 作为长度，这确保了即使从最后一个可能的起始点 `N - B - 1` 取 `B+1` 个字符，也不会越界。
+    *   **`__getitem__(self, idx)`**:
+        *   这是`Dataset`的核心。当`DataLoader`请求第`idx`个样本时，此方法被调用。
+        *   `chunk = self.data[idx : idx + self.block_size + 1]`: 从编码后的数据中切出一个长度为`block_size + 1`的片段。
+        *   `x = torch.tensor(chunk[:-1], ...)`: 将片段的前`block_size`个元素作为输入`x`。
+        *   `y = torch.tensor(chunk[1:], ...)`: 将片段的后`block_size`个元素（即`x`向右移动一位）作为目标`y`。这正是语言模型的训练方式：给定前面的字符，预测下一个字符。
+        *   `torch.tensor(..., dtype=torch.long)`: 将Python列表转换为PyTorch张量，数据类型为`long`（64位整数），这是嵌入层所要求的索引类型。
+*   **`create_dataloader` 函数**:
+    *   这是一个工厂函数，封装了创建`DataLoader`的逻辑。
+    *   `dataset = TextDataset(...)`: 实例化我们刚刚定义的`Dataset`。
+    *   `dataloader = DataLoader(...)`: 实例化PyTorch的`DataLoader`。
+        *   `dataset`: 要从中加载数据的`Dataset`对象。
+        *   `batch_size`: 每个批次包含多少个样本。
+        *   `shuffle=True`: 在每个epoch开始时，打乱数据的顺序。这对于训练的稳定性和泛化性非常重要。
 
 ---
 
-至此，我们已经成功地建立了一个完整且高效的数据处理管道。我们从一个原始的文本字符串开始，最终得到了一个可以持续提供打乱且批量化的`[输入, 目标]`张量对的`DataLoader`。这是模型训练前至关重要的一步。
+#### **0.5 配置文件**
 
-好的，感谢您的鼓励！我们现在进入最核心、最激动人心的部分。在这里，我们将从零开始，一块一块地拼接起强大的Transformer模型。我会尽可能地拆解每一个概念，让其变得直观易懂。
+##### **代码流程详述**
+我们将所有重要的超参数集中在一个文件中，方便管理和修改。
+
+##### **代码实现 (`config.py`)**
+```python
+# config.py
+
+# --- Data Parameters ---
+DATA_PATH = "data/tiny_shakespeare.txt"
+# For simplicity, we'll use a small portion of the data for quick training.
+# Set to 1.0 to use the full dataset.
+TRAIN_DATA_RATIO = 0.9 
+
+# --- Model Hyperparameters ---
+BATCH_SIZE = 64         # How many independent sequences will we process in parallel?
+BLOCK_SIZE = 256        # What is the maximum context length for predictions?
+D_MODEL = 512           # The dimension of the embedding and the model's hidden states.
+N_HEAD = 8              # The number of attention heads.
+N_LAYER = 6             # The number of Transformer blocks (Encoder/Decoder layers).
+DROPOUT = 0.1           # The dropout rate.
+
+# --- Training Hyperparameters ---
+LEARNING_RATE = 3e-4
+NUM_EPOCHS = 5
+DEVICE = "cuda" # "cuda" if torch.cuda.is_available() else "cpu"
+
+```
+
+##### **代码解释**
+*   每个参数都有清晰的命名和注释，解释了它的作用。
+*   `TRAIN_DATA_RATIO`: 我们添加了一个参数来划分训练集和验证集。
+*   `DEVICE`: 自动检测是否有可用的GPU，这使得代码更具可移植性。
+*   将这些参数放在一个单独的文件中，意味着当你想尝试不同的模型大小（如改变`D_MODEL`或`N_LAYER`）或训练设置时，你只需要修改这一个文件，而无需深入到模型或训练脚本的内部逻辑中。
+
+---
+好的，我们继续构建Transformer模型的核心组件。
 
 ---
 
-### **第三部分：Transformer模型架构详解**
+### **第一部分：构建Transformer的核心组件**
 
-在这一部分，我们将深入探索构成Transformer模型的各个组件，并使用PyTorch将它们一一实现。我们的目标是构建一个仅包含解码器（Decoder-only）的Transformer，它非常适合文本生成任务。
+在这一部分，我们将逐一实现构成Transformer架构的各个基本模块。我们将严格遵循模块化的思想，确保每个类都只负责一项明确的功能。所有的模型代码都将写入`model.py`文件中。
 
-#### **1. 核心理念回顾**
+#### **1.1 输入层：词嵌入与位置编码**
 
-与循环神经网络（RNN）一次处理一个时间步的序列信息不同，Transformer的核心是 **自注意力机制（Self-Attention）**。这种机制允许模型在处理序列中的任何一个词（或字符）时，能够同时直接计算它与序列中所有其他词的关联强度，从而捕捉长距离依赖关系。这种并行计算的能力是Transformer相比RNN的主要优势之一，极大地提高了训练效率。
+##### **代码流程详述**
+输入层负责将输入的整数索引序列转换为包含语义和位置信息的密集向量序列。这由两个子模块完成：
+1.  **`TokenEmbedding`**: 这是一个标准的PyTorch `nn.Embedding`层。它将每个词元索引映射到一个可学习的`d_model`维向量。
+2.  **`PositionalEncoding`**: 这个模块负责创建固定的、基于sin/cos函数的位置编码矩阵。它不是一个可学习的层，但在模型中扮演着至关重要的角色。
+    *   在`__init__`中，它会预先计算一个足够大的位置编码矩阵（例如，支持的最大序列长度为5000）。这个矩阵会被注册为模型的缓冲区（`register_buffer`），这意味着它会随着模型一起被移动到GPU，但不会被视为模型参数进行梯度更新。
+    *   在`forward`方法中，它接收词嵌入的输出，并将对应长度的位置编码切片加到词嵌入上。我们还会加入一个`nn.Dropout`层来增加正则化。
 
-#### **2. 词嵌入与位置编码 (Token Embedding & Positional Encoding)**
-
-计算机无法直接理解字符，因此第一步是需要将输入的字符索引转换为高维度的向量表示，这称为 **词嵌入（Token Embedding）**。PyTorch中的 `nn.Embedding` 层可以为我们完成这个任务。
-
-然而，仅有词嵌入是不够的。自注意力机制本身不包含任何关于序列顺序的信息，它平等地看待所有位置的词。为了让模型理解 "A followed by B" 和 "B followed by A" 的区别，我们必须额外注入位置信息。这就是 **位置编码（Positional Encoding）** 的作用。我们将其与词嵌入相加，共同作为模型的输入。
-
+##### **代码实现 (`model.py`)**
 ```python
-# Hyperparameters for the model
-d_model = 64 # Dimension of the model embedding
+# model.py
+
+import torch
+import torch.nn as nn
+import math
+
+class TokenEmbedding(nn.Module):
+    """
+    Converts token indices to dense embedding vectors.
+    """
+    def __init__(self, vocab_size: int, d_model: int):
+        super().__init__()
+        self.embedding = nn.Embedding(vocab_size, d_model)
+        self.d_model = d_model
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # The original paper scales the embeddings by sqrt(d_model).
+        return self.embedding(x) * math.sqrt(self.d_model)
 
 class PositionalEncoding(nn.Module):
-    def __init__(self, d_model, max_len=5000):
+    """
+    Injects positional information into the input embeddings.
+    """
+    def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
         super().__init__()
+        self.dropout = nn.Dropout(p=dropout)
+
+        # Create a positional encoding matrix of shape (max_len, d_model)
         pe = torch.zeros(max_len, d_model)
+        
+        # Create a tensor for the positions (0, 1, 2, ..., max_len-1)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
+        
+        # Calculate the division term for the sine and cosine functions
         div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        
+        # Apply sine to even indices
         pe[:, 0::2] = torch.sin(position * div_term)
+        
+        # Apply cosine to odd indices
         pe[:, 1::2] = torch.cos(position * div_term)
-        pe = pe.unsqueeze(0)
+        
+        # Add a batch dimension and register as a buffer
+        pe = pe.unsqueeze(0) # Shape: (1, max_len, d_model)
         self.register_buffer('pe', pe)
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x shape: (batch_size, seq_len, d_model)
+        # Add positional encoding to the input tensor
+        # self.pe is sliced to match the input sequence length
         x = x + self.pe[:, :x.size(1), :]
-        return x
+        return self.dropout(x)
+
 ```
 
-代码解释：
-*   我们创建了一个名为 `PositionalEncoding` 的模块。它不包含任何可训练的参数，其作用是根据固定的数学公式（正弦和余弦函数）为每个位置生成一个独特的编码向量。
-*   `__init__` 方法：
-    *   `pe = torch.zeros(max_len, d_model)`: 创建一个足够大的、形状为 `[最大序列长度, 模型维度]` 的零矩阵，用于存储位置编码。
-    *   `position` 和 `div_term`: 这两行代码正在构建计算正弦和余弦函数的公式组件。这种公式设计巧妙，能让模型轻易地学习到相对位置信息。
-    *   `pe[:, 0::2]` 和 `pe[:, 1::2]`: 分别计算偶数维度和奇数维度的位置编码值。
-    *   `self.register_buffer('pe', pe)`: 这是关键的一步。`register_buffer` 告诉PyTorch，`pe` 是模型的一个固定状态，它应该被包含在模型的`state_dict`中（这样保存和加载模型时它也会被保存），但它不是一个需要计算梯度的模型参数。
-*   `forward(self, x)` 方法：
-    *   它接收词嵌入后的张量 `x`（形状为 `[batch_size, seq_len, d_model]`）。
-    *   `self.pe[:, :x.size(1), :]`: 从我们预先计算好的 `pe` 矩阵中，取出与当前输入序列长度相匹配的部分。
-    *   `x = x + ...`: 将位置编码直接加到词嵌入上，从而将位置信息注入到输入向量中。
+##### **代码解释**
+*   **`TokenEmbedding` 类**:
+    *   `__init__`: 初始化一个`nn.Embedding`层。`vocab_size`是词汇表大小，`d_model`是嵌入向量的维度。
+    *   `forward`:
+        *   `self.embedding(x)`: PyTorch的嵌入层会自动将输入的索引张量`x`（形状 `[batch_size, seq_len]`）转换为嵌入向量张量（形状 `[batch_size, seq_len, d_model]`）。
+        *   `* math.sqrt(self.d_model)`: 遵循原版Transformer论文的做法，将嵌入向量乘以模型维度的平方根。这有助于在残差连接中平衡嵌入向量和位置编码的量级。
+*   **`PositionalEncoding` 类**:
+    *   `__init__`:
+        *   `self.dropout`: 初始化一个Dropout层，用于正则化。
+        *   `pe = torch.zeros(...)`: 创建一个空的矩阵，用于存放位置编码。
+        *   `position = torch.arange(...).unsqueeze(1)`: 创建一个列向量 `[[0], [1], ..., [max_len-1]]`，代表序列中的位置。
+        *   `div_term = torch.exp(...)`: 这是对公式 $10000^{2i/d_{model}}$ 的高效计算。通过在对数空间中计算 `(2i/d_model) * log(10000)` 然后取指数，可以避免直接计算大数值的幂，从而保持数值稳定性。
+        *   `pe[:, 0::2] = ...`, `pe[:, 1::2] = ...`: 利用PyTorch的切片功能，一次性计算所有偶数维度和奇数维度的sin/cos值。`position * div_term` 利用了广播机制，将 `[max_len, 1]` 的位置向量和 `[d_model/2]` 的`div_term`向量相乘，得到 `[max_len, d_model/2]` 的结果。
+        *   `self.register_buffer('pe', pe)`: 将`pe`张量注册为模型的缓冲区。这意味着`pe`是模型状态的一部分（会随`model.to(device)`移动），但它不是一个需要计算梯度的参数。
+    *   `forward`:
+        *   `x.size(1)`: 获取输入序列的实际长度`seq_len`。
+        *   `self.pe[:, :x.size(1), :]`: 从预先计算好的`pe`矩阵中，切出与当前输入序列长度相匹配的部分。
+        *   `x = x + ...`: 将位置编码加到词嵌入上。
+        *   `self.dropout(x)`: 应用dropout后返回结果。
 
-#### **3. 核心组件：带掩码的多头自注意力 (Masked Multi-Head Self-Attention)**
+---
 
-这是Transformer的心脏。它让模型在生成第 `t` 个字符时，能够关注到从第 `1` 个到第 `t` 个字符的所有信息，并动态地为它们分配不同的“注意力权重”。
+#### **1.2 多头自注意力机制 (Multi-Head Attention)**
 
-*   **自注意力（Self-Attention）**：对于序列中的每一个输入向量，我们通过三个独立的线性变换，创建出三个新的向量：**查询（Query）**、**键（Key）** 和 **值（Value）**。通过计算一个查询向量和所有键向量的点积，我们可以得到该查询与每个键的相似度分数。这些分数经过缩放和Softmax归一化后，就成了注意力权重。最后，将这些权重与对应的值向量加权求和，就得到了该位置的最终输出。
-*   **掩码（Masking）**：在文本生成任务中，模型在预测下一个词时，**不能看到未来的词**。因此，我们需要一个“掩码”来阻止这种情况。这个掩码是一个下三角矩阵，它会强制将所有未来位置的注意力分数设为一个极小的负数，这样在经过Softmax后，它们的权重就几乎为零。
-*   **多头（Multi-Head）**：我们不只做一次注意力计算，而是将模型维度 `d_model` 分割成多个“头”（`n_heads`）。每个头独立地执行上述的自注意力计算。这允许模型在不同的“表示子空间”中，同时关注不同方面的信息。最后，再将所有头的输出拼接起来，通过一个线性层进行整合。
+##### **代码流程详述**
+这是Transformer最核心的组件。我们将实现一个通用的多头注意力模块，它可以同时用于编码器的自注意力、解码器的带掩码自注意力以及编码器-解码器注意力。
+1.  **初始化 (`__init__`)**:
+    *   接收`d_model`和`n_head`作为参数。
+    *   断言`d_model`必须能被`n_head`整除。
+    *   创建四个关键的线性层：`q_proj`, `k_proj`, `v_proj`用于将输入投影到Q, K, V空间，以及`out_proj`用于将多头拼接后的结果进行最终投影。
+    *   保存`n_head`和`d_k`（每个头的维度）。
+2.  **前向传播 (`forward`)**:
+    *   接收`q`, `k`, `v`以及一个可选的`mask`作为输入。
+    *   获取批次大小`batch_size`。
+    *   将输入的`q`, `k`, `v`分别通过对应的线性投影层。
+    *   **拆分多头**: 将投影后的Q, K, V张量从形状 `[batch_size, seq_len, d_model]` 变换为 `[batch_size, n_head, seq_len, d_k]`。这通过`.view()`和`.transpose()`操作完成，以便每个头可以独立进行计算。
+    *   **计算注意力**:
+        *   计算分数：$Q \cdot K^T$。
+        *   应用缩放因子。
+        *   如果提供了`mask`，则将mask中为`False`（或0）的位置的分数设置为一个极大的负数。
+        *   应用Softmax得到注意力权重。
+        *   应用Dropout。
+        *   将权重与V相乘得到每个头的输出。
+    *   **合并多头**: 将多头输出从 `[batch_size, n_head, seq_len, d_k]` 变换回 `[batch_size, seq_len, d_model]`。这需要`.transpose()`和`.contiguous().view()`操作。
+    *   将合并后的结果通过最终的输出投影层`out_proj`。
 
+##### **代码实现 (`model.py`)**
 ```python
-# More model hyperparameters
-n_heads = 4
-d_k = d_model // n_heads # Dimension of key/query per head
+# model.py (continued)
 
 class MultiHeadAttention(nn.Module):
-    def __init__(self, n_heads, d_model):
+    """
+    Implements the Multi-Head Attention mechanism.
+    """
+    def __init__(self, d_model: int, n_head: int, dropout: float = 0.1):
         super().__init__()
-        self.n_heads = n_heads
+        assert d_model % n_head == 0, "d_model must be divisible by n_head"
+
         self.d_model = d_model
-        self.d_k = d_model // n_heads
+        self.n_head = n_head
+        self.d_k = d_model // n_head # Dimension of each head's key/query/value
 
-        self.q_linear = nn.Linear(d_model, d_model)
-        self.k_linear = nn.Linear(d_model, d_model)
-        self.v_linear = nn.Linear(d_model, d_model)
-        self.out_linear = nn.Linear(d_model, d_model)
-
-    def forward(self, x, mask):
-        batch_size = x.size(0)
+        # Linear projections for Q, K, V and the final output
+        self.q_proj = nn.Linear(d_model, d_model)
+        self.k_proj = nn.Linear(d_model, d_model)
+        self.v_proj = nn.Linear(d_model, d_model)
+        self.out_proj = nn.Linear(d_model, d_model)
         
-        q = self.q_linear(x).view(batch_size, -1, self.n_heads, self.d_k).transpose(1, 2)
-        k = self.k_linear(x).view(batch_size, -1, self.n_heads, self.d_k).transpose(1, 2)
-        v = self.v_linear(x).view(batch_size, -1, self.n_heads, self.d_k).transpose(1, 2)
+        self.dropout = nn.Dropout(dropout)
 
-        scores = torch.matmul(q, k.transpose(-2, -1)) / math.sqrt(self.d_k)
+    def forward(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor, mask: torch.Tensor = None) -> torch.Tensor:
+        # q, k, v shape: (batch_size, seq_len, d_model)
+        # mask shape: (batch_size, 1, seq_len, seq_len) or (batch_size, 1, 1, seq_len)
         
+        batch_size = q.size(0)
+
+        # 1. Perform linear projections and split into heads
+        # .view() reshapes the tensor.
+        # .transpose() swaps dimensions.
+        # Resulting shape for Q, K, V: (batch_size, n_head, seq_len, d_k)
+        Q = self.q_proj(q).view(batch_size, -1, self.n_head, self.d_k).transpose(1, 2)
+        K = self.k_proj(k).view(batch_size, -1, self.n_head, self.d_k).transpose(1, 2)
+        V = self.v_proj(v).view(batch_size, -1, self.n_head, self.d_k).transpose(1, 2)
+
+        # 2. Calculate attention scores
+        # K.transpose(-2, -1) results in shape (batch_size, n_head, d_k, seq_len)
+        # scores shape: (batch_size, n_head, seq_len, seq_len)
+        scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(self.d_k)
+
+        # 3. Apply mask (if provided)
         if mask is not None:
-            scores = scores.masked_fill(mask == 0, float('-inf'))
-        
-        attention_weights = torch.softmax(scores, dim=-1)
-        
-        context = torch.matmul(attention_weights, v)
-        context = context.transpose(1, 2).contiguous().view(batch_size, -1, self.d_model)
-        
-        output = self.out_linear(context)
+            # The mask is broadcasted to match the scores tensor's shape
+            scores = scores.masked_fill(mask == 0, -1e9)
+
+        # 4. Apply softmax and dropout
+        # attn_weights shape: (batch_size, n_head, seq_len, seq_len)
+        attn_weights = torch.softmax(scores, dim=-1)
+        attn_weights = self.dropout(attn_weights)
+
+        # 5. Multiply by V to get the output
+        # output shape: (batch_size, n_head, seq_len, d_k)
+        output = torch.matmul(attn_weights, V)
+
+        # 6. Concatenate heads and apply final linear projection
+        # .transpose() followed by .contiguous() and .view() to merge heads
+        # output shape: (batch_size, seq_len, d_model)
+        output = output.transpose(1, 2).contiguous().view(batch_size, -1, self.d_model)
+        output = self.out_proj(output)
+
         return output
 ```
 
-代码解释：
-*   `__init__`: 初始化了四个线性层。前三个用于从输入 `x` 生成Q, K, V，最后一个 (`out_linear`) 用于整合多头注意力的输出。
-*   `forward(self, x, mask)`:
-    *   `q = self.q_linear(x).view(...)`: 输入 `x` 经过线性变换后，通过 `.view()` 和 `.transpose()` 操作，被重塑为 `[batch_size, n_heads, seq_len, d_k]` 的形状，将不同的头分离开。K和V也做同样的操作。
-    *   `scores = torch.matmul(...) / math.sqrt(self.d_k)`: 计算Q和K的点积，得到注意力分数。除以 `sqrt(d_k)` 是一个缩放步骤，可以防止梯度在训练初期过小。
-    *   `scores.masked_fill(mask == 0, float('-inf'))`: 这就是应用掩码的地方。我们将掩码中值为0的位置（即未来位置）的注意力分数设置为负无穷。
-    *   `attention_weights = torch.softmax(scores, dim=-1)`: 对分数进行softmax，得到0到1之间的权重。被掩码的位置权重会变为0。
-    *   `context = torch.matmul(attention_weights, v)`: 将权重与V进行加权求和。
-    *   `context.transpose(...).contiguous().view(...)`: 将多头的结果重新拼接成 `[batch_size, seq_len, d_model]` 的形状。
-    *   `output = self.out_linear(context)`: 通过最后的线性层，得到该模块的最终输出。
+##### **代码解释**
+*   **`__init__`**:
+    *   `assert d_model % n_head == 0`: 确保可以平均分配维度给每个头。
+    *   `self.d_k = d_model // n_head`: 计算每个头的维度。
+    *   `nn.Linear(d_model, d_model)`: 我们为Q, K, V各创建一个线性层。注意，这里输出维度仍然是`d_model`，拆分到各个头是在`forward`中通过`view`操作完成的，这是一种常见的实现方式。
+*   **`forward`**:
+    *   `Q = self.q_proj(q).view(batch_size, -1, self.n_head, self.d_k).transpose(1, 2)`: 这是一个关键的变形操作链。
+        1.  `self.q_proj(q)`: 形状 `[B, S, D]` (B=batch, S=seq_len, D=d_model)。
+        2.  `.view(B, -1, H, d_k)`: 将`D`维度拆分为`H`（头数）和`d_k`（头维度）。`-1`让PyTorch自动推断序列长度。形状变为 `[B, S, H, d_k]`。
+        3.  `.transpose(1, 2)`: 交换序列长度和头数维度，得到 `[B, H, S, d_k]`。这个形状对于并行的头计算非常方便。
+    *   `scores = torch.matmul(Q, K.transpose(-2, -1))`: 计算Q和K的点积。`K.transpose(-2, -1)`将K的最后两个维度（`S`和`d_k`）交换，得到 `[B, H, d_k, S]`。`[B, H, S, d_k]` @ `[B, H, d_k, S]` -> `[B, H, S, S]`。
+    *   `scores = scores.masked_fill(mask == 0, -1e9)`: `masked_fill`是一个PyTorch函数。它会检查`mask == 0`的条件，在所有条件为`True`的位置，用`-1e9`（一个非常小的数）填充`scores`张量。
+    *   `attn_weights = torch.softmax(scores, dim=-1)`: 沿着最后一个维度（键的维度）计算softmax，确保对于每个查询，其对所有键的注意力权重之和为1。
+    *   `output = output.transpose(1, 2).contiguous().view(batch_size, -1, self.d_model)`: 这是拆分头的逆操作。
+        1.  `.transpose(1, 2)`: 换回头和序列长度维度，得到 `[B, S, H, d_k]`。
+        2.  `.contiguous()`: 在进行`view`之前，需要确保张量在内存中是连续的。`transpose`操作可能会导致内存不连续。
+        3.  `.view(B, -1, D)`: 将`H`和`d_k`维度重新合并为`D`（`d_model`），得到最终的 `[B, S, D]`。
+    *   `output = self.out_proj(output)`: 通过最后的线性层，整合所有头的信息。
 
-#### **4. 其他关键组件：前馈网络与残差连接**
+---
+好的，我们继续构建剩下的核心组件，并开始将它们组装成编码器和解码器层。
 
-*   **位置相关前馈网络 (Position-wise Feed-Forward Network)**：在每个注意力层之后，都会跟一个简单的前馈网络。它对序列中的每一个位置的向量独立地进行一次非线性变换，增加了模型的表达能力。它通常由两个线性层和它们之间的一个ReLU激活函数组成。
-*   **残差连接 (Residual Connection) 与层归一化 (Layer Normalization)**：这是训练深度网络的关键技巧。在每个子模块（如多头注意力和前馈网络）的周围，我们都使用一个残差连接，即把模块的输入直接加到模块的输出上 (`x + Sublayer(x)`)。这可以有效防止梯度消失，让网络更容易训练。在残差连接之后，我们再进行一次层归一化 (`LayerNorm`)，它能稳定训练过程，加速收敛。
+---
 
+#### **1.3 位置全连接前馈网络 (Position-wise Feed-Forward Network)**
+
+##### **代码流程详述**
+这个模块相对简单，它的作用是对注意力层的输出进行进一步的非线性处理。
+1.  **初始化 (`__init__`)**:
+    *   接收`d_model`、一个更大的中间层维度`d_ff`（通常是`4 * d_model`）以及`dropout`率。
+    *   创建两个线性层：第一个`linear1`将维度从`d_model`扩展到`d_ff`，第二个`linear2`将维度从`d_ff`缩减回`d_model`。
+    *   在它们之间放置一个Dropout层和一个ReLU激活函数。
+2.  **前向传播 (`forward`)**:
+    *   按顺序将输入`x`通过`linear1` -> `relu` -> `dropout` -> `linear2`。
+
+##### **代码实现 (`model.py`)**
 ```python
-# More model hyperparameters
-dropout_rate = 0.1
+# model.py (continued)
 
-class FeedForward(nn.Module):
-    def __init__(self, d_model, d_ff=2048, dropout=dropout_rate):
+class PositionWiseFeedForward(nn.Module):
+    """
+    Implements the Position-wise Feed-Forward Network.
+    """
+    def __init__(self, d_model: int, d_ff: int, dropout: float = 0.1):
         super().__init__()
-        self.linear_1 = nn.Linear(d_model, d_ff)
+        self.linear1 = nn.Linear(d_model, d_ff)
         self.dropout = nn.Dropout(dropout)
-        self.linear_2 = nn.Linear(d_ff, d_model)
+        self.linear2 = nn.Linear(d_ff, d_model)
+        self.relu = nn.ReLU()
 
-    def forward(self, x):
-        x = torch.relu(self.linear_1(x))
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # x shape: (batch_size, seq_len, d_model)
+        x = self.linear1(x)
+        x = self.relu(x)
         x = self.dropout(x)
-        x = self.linear_2(x)
+        x = self.linear2(x)
         return x
+```
 
-class DecoderBlock(nn.Module):
-    def __init__(self, d_model, n_heads, dropout=dropout_rate):
+##### **代码解释**
+*   **`__init__`**:
+    *   `self.linear1 = nn.Linear(d_model, d_ff)`: 定义第一个线性层，实现维度的扩展。
+    *   `self.linear2 = nn.Linear(d_ff, d_model)`: 定义第二个线性层，实现维度的缩减。
+    *   `self.relu = nn.ReLU()`: 定义ReLU激活函数。
+*   **`forward`**:
+    *   代码直接反映了数据流：`x`首先通过`linear1`和`relu`进行非线性变换和特征提取，然后通过`dropout`进行正则化，最后通过`linear2`将特征投影回原始的`d_model`维度，以便于后续的残差连接。
+
+---
+
+#### **1.4 编码器层 (Encoder Layer)**
+
+##### **代码流程详述**
+现在我们将前面构建的`MultiHeadAttention`和`PositionWiseFeedForward`模块，与残差连接（Add）和层归一化（Norm）组合起来，形成一个完整的编码器层。
+1.  **初始化 (`__init__`)**:
+    *   接收`d_model`, `n_head`, `d_ff`, `dropout`等超参数。
+    *   实例化一个`MultiHeadAttention`模块作为自注意力子层。
+    *   实例化一个`PositionWiseFeedForward`模块作为前馈网络子层。
+    *   创建两个`nn.LayerNorm`模块，分别用于两个子层的输出。
+    *   创建一个`nn.Dropout`模块，用于残差连接。
+2.  **前向传播 (`forward`)**:
+    *   接收输入`x`和一个可选的`mask`（对于编码器，这个mask通常用于屏蔽`<PAD>`填充位）。
+    *   **第一个子层 (Self-Attention)**:
+        *   计算自注意力输出。注意，Q, K, V都来自同一个输入`x`。
+        *   将注意力输出通过dropout层。
+        *   将dropout后的结果与原始输入`x`相加（第一个残差连接）。
+        *   将相加后的结果通过第一个层归一化模块。
+    *   **第二个子层 (Feed-Forward)**:
+        *   将第一个子层的输出送入前馈网络。
+        *   将FFN的输出通过dropout层。
+        *   将dropout后的结果与FFN的**输入**相加（第二个残差连接）。
+        *   将相加后的结果通过第二个层归一化模块。
+    *   返回最终结果。
+
+##### **代码实现 (`model.py`)**
+```python
+# model.py (continued)
+
+class EncoderLayer(nn.Module):
+    """
+    A single layer of the Transformer Encoder.
+    Consists of a multi-head self-attention sublayer and a position-wise feed-forward sublayer.
+    """
+    def __init__(self, d_model: int, n_head: int, d_ff: int, dropout: float = 0.1):
         super().__init__()
-        self.attention = MultiHeadAttention(n_heads, d_model)
+        self.self_attn = MultiHeadAttention(d_model, n_head, dropout)
+        self.feed_forward = PositionWiseFeedForward(d_model, d_ff, dropout)
         self.norm1 = nn.LayerNorm(d_model)
         self.norm2 = nn.LayerNorm(d_model)
-        self.ff = FeedForward(d_model)
         self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x, mask):
-        attn_output = self.attention(x, mask)
-        x = self.norm1(x + self.dropout(attn_output))
-        ff_output = self.ff(x)
-        x = self.norm2(x + self.dropout(ff_output))
+    def forward(self, x: torch.Tensor, mask: torch.Tensor) -> torch.Tensor:
+        # x shape: (batch_size, seq_len, d_model)
+        # mask shape: (batch_size, 1, 1, seq_len) for padding mask
+        
+        # --- Self-Attention Sublayer ---
+        # 1. Compute self-attention
+        attn_output = self.self_attn(q=x, k=x, v=x, mask=mask)
+        # 2. Apply dropout and residual connection
+        x = x + self.dropout(attn_output)
+        # 3. Apply layer normalization
+        x = self.norm1(x)
+
+        # --- Feed-Forward Sublayer ---
+        # 1. Compute feed-forward output
+        ff_output = self.feed_forward(x)
+        # 2. Apply dropout and residual connection
+        x = x + self.dropout(ff_output)
+        # 3. Apply layer normalization
+        x = self.norm2(x)
+        
         return x
 ```
 
-代码解释：
-*   `FeedForward`: 简单实现了 `线性层 -> ReLU -> Dropout -> 线性层` 的结构。
-*   `DecoderBlock`: 这是构成我们模型的基本单元。它清晰地展示了信息的流动过程：
-    1.  输入 `x` 首先进入多头注意力层 (`self.attention`)。
-    2.  注意力层的输出经过Dropout后，与原始输入 `x` 相加（残差连接），然后进行层归一化 (`self.norm1`)。
-    3.  上一步的结果进入前馈网络 (`self.ff`)。
-    4.  前馈网络的输出经过Dropout后，再次与它的输入相加（第二个残差连接），然后进行第二次层归一化 (`self.norm2`)。
+##### **代码解释**
+*   **`__init__`**:
+    *   `self.self_attn = ...`: 实例化多头注意力模块。
+    *   `self.feed_forward = ...`: 实例化前馈网络模块。
+    *   `self.norm1`, `self.norm2`: 实例化两个独立的层归一化模块。为每个子层使用独立的归一化层是一种标准实践。
+*   **`forward`**:
+    *   `attn_output = self.self_attn(q=x, k=x, v=x, mask=mask)`: 调用自注意力模块。因为是**自**注意力，所以Q, K, V都来自于同一个源`x`。
+    *   `x = x + self.dropout(attn_output)`: 这是残差连接的核心。我们将子层（注意力）的输出先通过dropout，然后加回到子层的**原始输入**`x`上。
+    *   `x = self.norm1(x)`: 对残差连接的结果进行层归一化。
+    *   接下来的Feed-Forward子层遵循完全相同的模式：`FFN -> Dropout -> Add -> Norm`。注意，第二个残差连接加的是FFN的输入（即第一个子层的输出）。
 
-#### **5. 组装完整的生成模型**
+---
 
-万事俱备，现在我们可以将所有组件组装成一个完整的语言模型了。
+#### **1.5 解码器层 (Decoder Layer)**
 
+##### **代码流程详述**
+解码器层比编码器层复杂，因为它有三个子层。
+1.  **初始化 (`__init__`)**:
+    *   实例化**两个**`MultiHeadAttention`模块：一个用于带掩码的自注意力（`self_attn`），另一个用于编码器-解码器注意力（`cross_attn`）。
+    *   实例化一个`PositionWiseFeedForward`模块。
+    *   创建**三个**`nn.LayerNorm`模块，每个子层一个。
+    *   创建一个`nn.Dropout`模块。
+2.  **前向传播 (`forward`)**:
+    *   接收解码器输入`x`、编码器输出`encoder_output`，以及两个掩码：`src_mask`（源序列的填充掩码）和`tgt_mask`（目标序列的前瞻掩码和填充掩码的组合）。
+    *   **第一个子层 (Masked Self-Attention)**:
+        *   与编码器层类似，但调用自注意力时传入`tgt_mask`来防止看到未来。
+        *   应用Dropout、残差连接和层归一化。
+    *   **第二个子层 (Encoder-Decoder Attention)**:
+        *   调用`cross_attn`模块。关键在于：**Q**来自前一个子层的输出，而**K**和**V**都来自`encoder_output`。
+        *   传入`src_mask`来屏蔽源序列中的填充位。
+        *   应用Dropout、残差连接和层归一化。
+    *   **第三个子层 (Feed-Forward)**:
+        *   与编码器层完全相同，对第二个子层的输出进行处理。
+        *   应用Dropout、残差连接和层归一化。
+    *   返回最终结果。
+
+##### **代码实现 (`model.py`)**
 ```python
-# Final model hyperparameters
-n_layers = 3 # Number of DecoderBlocks to stack
+# model.py (continued)
 
-class LanguageModel(nn.Module):
-    def __init__(self, vocab_size, d_model, n_layers, n_heads):
+class DecoderLayer(nn.Module):
+    """
+    A single layer of the Transformer Decoder.
+    Consists of three sublayers: masked multi-head self-attention, 
+    encoder-decoder multi-head attention, and position-wise feed-forward.
+    """
+    def __init__(self, d_model: int, n_head: int, d_ff: int, dropout: float = 0.1):
         super().__init__()
-        self.token_embedding = nn.Embedding(vocab_size, d_model)
-        self.positional_encoding = PositionalEncoding(d_model)
-        self.dropout = nn.Dropout(dropout_rate)
-        
-        self.decoder_blocks = nn.ModuleList([DecoderBlock(d_model, n_heads) for _ in range(n_layers)])
-        
-        self.final_norm = nn.LayerNorm(d_model)
-        self.lm_head = nn.Linear(d_model, vocab_size)
+        self.self_attn = MultiHeadAttention(d_model, n_head, dropout)
+        self.cross_attn = MultiHeadAttention(d_model, n_head, dropout)
+        self.feed_forward = PositionWiseFeedForward(d_model, d_ff, dropout)
+        self.norm1 = nn.LayerNorm(d_model)
+        self.norm2 = nn.LayerNorm(d_model)
+        self.norm3 = nn.LayerNorm(d_model)
+        self.dropout = nn.Dropout(dropout)
 
-    def forward(self, x):
-        seq_len = x.size(1)
-        mask = torch.tril(torch.ones(seq_len, seq_len)).unsqueeze(0).unsqueeze(0).to(x.device)
+    def forward(self, x: torch.Tensor, encoder_output: torch.Tensor, src_mask: torch.Tensor, tgt_mask: torch.Tensor) -> torch.Tensor:
+        # x shape: (batch_size, tgt_seq_len, d_model)
+        # encoder_output shape: (batch_size, src_seq_len, d_model)
+        # src_mask shape: (batch_size, 1, 1, src_seq_len)
+        # tgt_mask shape: (batch_size, 1, tgt_seq_len, tgt_seq_len)
 
-        x = self.token_embedding(x)
+        # --- Masked Self-Attention Sublayer ---
+        attn_output = self.self_attn(q=x, k=x, v=x, mask=tgt_mask)
+        x = x + self.dropout(attn_output)
+        x = self.norm1(x)
+
+        # --- Encoder-Decoder Attention Sublayer ---
+        # Query from decoder, Key and Value from encoder
+        cross_attn_output = self.cross_attn(q=x, k=encoder_output, v=encoder_output, mask=src_mask)
+        x = x + self.dropout(cross_attn_output)
+        x = self.norm2(x)
+
+        # --- Feed-Forward Sublayer ---
+        ff_output = self.feed_forward(x)
+        x = x + self.dropout(ff_output)
+        x = self.norm3(x)
+        
+        return x
+```
+
+##### **代码解释**
+*   **`__init__`**:
+    *   `self.self_attn`和`self.cross_attn`是两个独立的`MultiHeadAttention`实例，它们将学习不同的权重。
+    *   `self.norm1`, `self.norm2`, `self.norm3`: 对应三个子层的三个独立的层归一化模块。
+*   **`forward`**:
+    *   `attn_output = self.self_attn(q=x, k=x, v=x, mask=tgt_mask)`: 第一个子层对解码器自身的输入`x`进行自注意力计算，并使用`tgt_mask`来屏蔽未来信息。
+    *   `cross_attn_output = self.cross_attn(q=x, k=encoder_output, v=encoder_output, mask=src_mask)`: 这是第二个子层，是解码器与编码器交互的地方。
+        *   `q=x`: 查询来自于解码器（经过第一个子层处理后的`x`）。
+        *   `k=encoder_output`, `v=encoder_output`: 键和值都来自于编码器的最终输出。
+        *   `mask=src_mask`: 使用源序列的填充掩码，确保注意力不会计算在源句子的填充位上。
+    *   剩下的部分，包括残差连接和层归一化，以及第三个FFN子层，都遵循与编码器层相同的逻辑。
+
+---
+好的，现在我们已经拥有了所有的基础组件，是时候将它们组装成一个完整的、端到端的Transformer模型了。
+
+---
+
+### **第二部分：组装完整的Transformer模型**
+
+在这一部分，我们将使用上一部分创建的`EncoderLayer`和`DecoderLayer`来构建完整的编码器和解码器。然后，我们会将编码器、解码器以及输入/输出层整合到一个顶层的`Transformer`类中。
+
+#### **2.1 编码器 (Encoder)**
+
+##### **代码流程详述**
+编码器的作用就是将N个`EncoderLayer`堆叠在一起。
+1.  **初始化 (`__init__`)**:
+    *   接收词汇表大小、`d_model`、`n_layer`（编码器层数）、`n_head`、`d_ff`和`dropout`等超参数。
+    *   创建输入层，由`TokenEmbedding`和`PositionalEncoding`组成。
+    *   使用`nn.ModuleList`来存放N个`EncoderLayer`。`nn.ModuleList`是一个可以像Python列表一样索引的模块容器，它能确保所有子模块都被PyTorch正确注册。
+2.  **前向传播 (`forward`)**:
+    *   接收源序列索引`src`和源序列掩码`src_mask`。
+    *   将`src`通过输入层（词嵌入 + 位置编码）。
+    *   使用一个循环，将数据依次传递过`nn.ModuleList`中的每一个`EncoderLayer`。
+    *   返回最后一层的输出。
+
+##### **代码实现 (`model.py`)**
+```python
+# model.py (continued)
+
+class Encoder(nn.Module):
+    """
+    The Encoder part of the Transformer model.
+    Consists of an embedding layer and N stacked EncoderLayers.
+    """
+    def __init__(self, vocab_size: int, d_model: int, n_layer: int, n_head: int, d_ff: int, dropout: float):
+        super().__init__()
+        self.token_embedding = TokenEmbedding(vocab_size, d_model)
+        self.positional_encoding = PositionalEncoding(d_model, dropout)
+        self.layers = nn.ModuleList([
+            EncoderLayer(d_model, n_head, d_ff, dropout) for _ in range(n_layer)
+        ])
+        self.norm = nn.LayerNorm(d_model)
+
+    def forward(self, src: torch.Tensor, src_mask: torch.Tensor) -> torch.Tensor:
+        # src shape: (batch_size, src_seq_len)
+        # src_mask shape: (batch_size, 1, 1, src_seq_len)
+        
+        # 1. Apply token embedding and positional encoding
+        x = self.token_embedding(src)
         x = self.positional_encoding(x)
-        x = self.dropout(x)
         
-        for block in self.decoder_blocks:
-            x = block(x, mask)
+        # 2. Pass through N encoder layers
+        for layer in self.layers:
+            x = layer(x, src_mask)
             
-        x = self.final_norm(x)
-        logits = self.lm_head(x)
+        # 3. Apply a final layer normalization
+        x = self.norm(x)
         
-        return logits
+        return x
 ```
 
-代码解释：
-*   `__init__`:
-    *   `self.token_embedding`: 词嵌入层，将输入的字符索引转换为向量。
-    *   `self.positional_encoding`: 我们之前实现的位置编码模块。
-    *   `self.decoder_blocks = nn.ModuleList(...)`: 这是模型的“主体”。我们使用 `nn.ModuleList` 来堆叠 `n_layers` 个 `DecoderBlock`。
-    *   `self.final_norm`: 在输出到最后一步之前，再进行一次层归一化。
-    *   `self.lm_head`: 这是一个线性层，它的作用是将模型最终输出的 `d_model` 维度的向量，投影回 `vocab_size` 维度。这样，输出的每个位置上的向量，其每一个元素就对应着词汇表中一个字符的“得分”（logit）。
-*   `forward(self, x)`:
-    *   `mask = torch.tril(...)`: 在这里，我们为输入的序列动态地创建了 causal mask。`torch.tril` 会创建一个下三角矩阵。
-    *   `x = self.token_embedding(x)`: 输入 `x` (形状 `[batch, seq_len]`) 首先通过嵌入层。
-    *   `x = self.positional_encoding(x)`: 然后加上位置编码。
-    *   `for block in self.decoder_blocks:`: 将数据依次送入我们堆叠的每一个`DecoderBlock`中进行处理。
-    *   `logits = self.lm_head(self.final_norm(x))`: 最后的输出经过归一化和线性投影，得到最终的 `logits`（形状 `[batch, seq_len, vocab_size]`）。
+##### **代码解释**
+*   **`__init__`**:
+    *   `self.token_embedding`, `self.positional_encoding`: 实例化我们之前定义的输入层模块。
+    *   `self.layers = nn.ModuleList([...])`: 这是一个列表推导式，它会创建`n_layer`个`EncoderLayer`实例，并将它们存放在`nn.ModuleList`中。
+    *   `self.norm = nn.LayerNorm(d_model)`: 在原版Transformer论文中，编码器和解码器的最后还会额外应用一次层归一化。我们遵循这个设计。
+*   **`forward`**:
+    *   `x = self.token_embedding(src)`: 将输入的索引序列转换为词嵌入。
+    *   `x = self.positional_encoding(x)`: 注入位置信息。
+    *   `for layer in self.layers: ...`: 这是一个简洁的循环，它按顺序将`x`传递过堆叠的每一个编码器层，每一层的输出成为下一层的输入。
+    *   `x = self.norm(x)`: 应用最后的层归一化。
 
 ---
 
-我们已经成功地从最基础的组件开始，构建了一个完整且功能强大的Transformer语言模型！每一步的实现都对应着Transformer架构图中的一个部分。
+#### **2.2 解码器 (Decoder)**
 
-### **第四部分：训练模块的构建**
+##### **代码流程详述**
+解码器的结构与编码器非常相似，也是堆叠N个`DecoderLayer`。
+1.  **初始化 (`__init__`)**:
+    *   与编码器类似，接收所有必要的超参数。
+    *   创建输入层（`TokenEmbedding` + `PositionalEncoding`）。
+    *   使用`nn.ModuleList`来存放N个`DecoderLayer`。
+2.  **前向传播 (`forward`)**:
+    *   接收目标序列索引`tgt`、编码器输出`encoder_output`、源序列掩码`src_mask`和目标序列掩码`tgt_mask`。
+    *   将`tgt`通过输入层。
+    *   使用一个循环，将数据和掩码依次传递过每一个`DecoderLayer`。
+    *   返回最后一层的输出。
 
-在这一部分，我们将编写驱动模型学习的代码。这包括设置训练所需的超参数，实例化我们之前定义的模型、损失函数和优化器，并构建核心的训练与评估循环。
-
-#### **1. 定义训练超参数与实例化组件**
-
-在开始训练之前，我们需要定义一些关键的超参数，例如学习率和训练的总轮数。然后，我们将创建模型、损失函数和优化器的实例。
-
+##### **代码实现 (`model.py`)**
 ```python
-# Training Hyperparameters
-learning_rate = 3e-4
-num_epochs = 100
+# model.py (continued)
 
-# Instantiate the model
-model = LanguageModel(
-    vocab_size=vocab_size,
-    d_model=d_model,
-    n_layers=n_layers,
-    n_heads=n_heads
-)
-model.to(device)
+class Decoder(nn.Module):
+    """
+    The Decoder part of the Transformer model.
+    Consists of an embedding layer and N stacked DecoderLayers.
+    """
+    def __init__(self, vocab_size: int, d_model: int, n_layer: int, n_head: int, d_ff: int, dropout: float):
+        super().__init__()
+        self.token_embedding = TokenEmbedding(vocab_size, d_model)
+        self.positional_encoding = PositionalEncoding(d_model, dropout)
+        self.layers = nn.ModuleList([
+            DecoderLayer(d_model, n_head, d_ff, dropout) for _ in range(n_layer)
+        ])
+        self.norm = nn.LayerNorm(d_model)
 
-# Define the loss function and the optimizer
-criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-
-# Print model size
-num_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-print(f"The model has {num_params:,} trainable parameters.")
+    def forward(self, tgt: torch.Tensor, encoder_output: torch.Tensor, src_mask: torch.Tensor, tgt_mask: torch.Tensor) -> torch.Tensor:
+        # tgt shape: (batch_size, tgt_seq_len)
+        # encoder_output shape: (batch_size, src_seq_len, d_model)
+        # src_mask shape: (batch_size, 1, 1, src_seq_len)
+        # tgt_mask shape: (batch_size, 1, tgt_seq_len, tgt_seq_len)
+        
+        # 1. Apply token embedding and positional encoding
+        x = self.token_embedding(tgt)
+        x = self.positional_encoding(x)
+        
+        # 2. Pass through N decoder layers
+        for layer in self.layers:
+            x = layer(x, encoder_output, src_mask, tgt_mask)
+            
+        # 3. Apply a final layer normalization
+        x = self.norm(x)
+        
+        return x
 ```
 
-代码解释：
-*   `learning_rate`: 学习率控制了模型参数在每次更新时调整的幅度。这是一个需要仔细调整的关键超参数。`3e-4` (即0.0003) 是训练Transformer时一个常用且效果不错的初始值。
-*   `num_epochs`: 定义了我们将完整地遍历训练数据集多少次。
-*   `model = LanguageModel(...)`: 我们使用之前定义的模型超参数（`vocab_size`, `d_model`等）来创建`LanguageModel`类的一个实例。
-*   `model.to(device)`: 这一步至关重要，它将模型的所有参数和缓冲区移动到我们之前设置的设备上（GPU或CPU）。为了让计算在GPU上进行，模型和数据必须在同一个设备上。
-*   `criterion = nn.CrossEntropyLoss()`: 我们选择交叉熵损失作为我们的损失函数。这对于多分类问题（我们在这里的每一步都是在`vocab_size`个可能的字符中选择一个）是标准的选择。`nn.CrossEntropyLoss`在内部会自动帮我们处理`softmax`和计算负对数似然损失，因此我们模型的输出只需要是原始的`logits`即可。
-*   `optimizer = torch.optim.Adam(...)`: 我们选择Adam优化器，它是一种高效且广泛使用的梯度下降算法。我们将模型的`model.parameters()`传递给它，告诉它需要更新哪些参数，并指定了学习率。
-*   最后，我们计算并打印了模型的总参数量，这有助于我们了解模型的规模。
-
-#### **2. 训练循环 (Training Loop)**
-
-这是项目的心脏跳动的地方。我们将定义一个函数，它负责执行一个完整的训练轮次（epoch）。
-
-```python
-def train(model, data_loader, criterion, optimizer, device):
-    model.train()
-    epoch_loss = 0
-    
-    progress_bar = tqdm(data_loader, desc="Training")
-    
-    for batch_x, batch_y in progress_bar:
-        batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-        
-        optimizer.zero_grad()
-        
-        logits = model(batch_x)
-        
-        B, T, C = logits.shape
-        logits_flat = logits.view(B*T, C)
-        targets_flat = batch_y.view(B*T)
-        
-        loss = criterion(logits_flat, targets_flat)
-        
-        loss.backward()
-        
-        optimizer.step()
-        
-        epoch_loss += loss.item()
-        progress_bar.set_postfix(loss=loss.item())
-        
-    return epoch_loss / len(data_loader)
-```
-
-代码解释：
-*   `def train(...)`: 我们将训练逻辑封装在一个函数中，使其清晰且可重用。
-*   `model.train()`: 这是PyTorch的一个重要模式切换。调用它会告诉模型正处于“训练模式”。这会启用像Dropout这样的层，这些层在训练和评估时的行为是不同的。
-*   `progress_bar = tqdm(...)`: 我们用`tqdm`包装`data_loader`，这样在迭代时就会显示一个漂亮的进度条。
-*   `for batch_x, batch_y in progress_bar:`: 循环从数据加载器中获取每一个批次的数据。
-*   `batch_x, batch_y = batch_x.to(device), batch_y.to(device)`: 将当前批次的数据也移动到与模型相同的设备上。
-*   `optimizer.zero_grad()`: 在计算新一轮的梯度之前，必须清空上一轮的梯度。否则，梯度会累积。
-*   `logits = model(batch_x)`: **前向传播**。将输入数据送入模型，得到模型的预测输出`logits`。
-*   `logits_flat = logits.view(B*T, C)` 和 `targets_flat = batch_y.view(B*T)`: 这是非常关键的一步。`CrossEntropyLoss`期望的输入格式是：`logits`的形状为 `[N, C]`，`targets`的形状为 `[N]`，其中`N`是样本总数，`C`是类别数。我们模型的输出`logits`形状是 `[Batch, Time, Classes]`，目标`batch_y`的形状是 `[Batch, Time]`。因此，我们用`.view()`方法将它们“展平”，以符合损失函数的要求。
-*   `loss = criterion(logits_flat, targets_flat)`: 计算模型预测和真实目标之间的损失。
-*   `loss.backward()`: **反向传播**。PyTorch会自动计算损失相对于模型所有可训练参数的梯度。
-*   `optimizer.step()`: **参数更新**。优化器根据计算出的梯度来更新模型的权重。
-*   `epoch_loss += loss.item()`: `.item()`方法可以从一个只包含单个值的张量中提取出Python数值。我们累加每个批次的损失。
-*   `return epoch_loss / len(data_loader)`: 返回这个轮次的平均损失。
-
-#### **3. 评估循环 (Evaluation Loop)**
-
-评估循环与训练循环非常相似，但有几个关键区别：它不计算梯度，也不更新模型参数。它的唯一目的是在当前模型状态下，衡量模型在数据上的表现。
-
-*在实际项目中，我们通常会有一个独立的验证数据集（validation set）来执行评估，以获得模型泛化能力的无偏估计。为了简化，我们这里将在同一个训练数据上进行评估，但会遵循正确的评估流程。*
-
-```python
-def evaluate(model, data_loader, criterion, device):
-    model.eval()
-    epoch_loss = 0
-    
-    with torch.no_grad():
-        for batch_x, batch_y in data_loader:
-            batch_x, batch_y = batch_x.to(device), batch_y.to(device)
-            
-            logits = model(batch_x)
-            
-            B, T, C = logits.shape
-            logits_flat = logits.view(B*T, C)
-            targets_flat = batch_y.view(B*T)
-            
-            loss = criterion(logits_flat, targets_flat)
-            
-            epoch_loss += loss.item()
-            
-    return epoch_loss / len(data_loader)
-```
-
-代码解释：
-*   `model.eval()`: 切换到“评估模式”。这会禁用Dropout等层。
-*   `with torch.no_grad()`: 这是一个上下文管理器，它会临时禁用所有梯度计算。这非常重要，因为在评估时我们不需要梯度，关闭它可以显著减少内存消耗并加速计算。
-*   循环内部的逻辑与训练循环基本一致，都是进行前向传播和计算损失，但**没有** `optimizer.zero_grad()`、`loss.backward()` 和 `optimizer.step()` 这三个步骤。
-
-#### **4. 整合与执行**
-
-现在，我们把所有部分组合起来，编写主循环来执行整个训练过程。
-
-```python
-train_losses = []
-
-for epoch in range(num_epochs):
-    train_loss = train(model, train_loader, criterion, optimizer, device)
-    train_losses.append(train_loss)
-    
-    if (epoch + 1) % 10 == 0:
-        print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {train_loss:.4f}")
-```
-
-代码解释：
-*   `train_losses = []`: 我们创建一个列表来存储每个轮次的训练损失，以便后续进行可视化。
-*   `for epoch in range(num_epochs):`: 主循环，重复我们设定的轮次数。
-*   在循环内部，我们依次调用 `train` 函数，并将返回的平均损失存入列表中。
-*   我们设置了一个简单的打印逻辑，每10个轮次打印一次当前的训练损失，让我们能够实时监控训练的进展。
+##### **代码解释**
+*   解码器的实现与编码器高度对称，这体现了Transformer设计的优雅之处。
+*   主要区别在于`forward`方法接收的参数更多，因为它需要编码器的输出（`encoder_output`）以及两种掩码（`src_mask`, `tgt_mask`），并将它们正确地传递给每一个`DecoderLayer`。
 
 ---
 
-### **第五部分：实时训练过程可视化**
+#### **2.3 完整的Transformer模型**
 
-在这一部分，我们将使用`matplotlib`库来绘制模型的损失曲线。一个理想的损失曲线应该随着训练轮次（Epochs）的增加而平稳下降。我们将在训练循环的末尾添加绘图功能，以实现“实时”或至少是逐轮更新的训练监控。
+##### **代码流程详述**
+现在，我们将所有部分整合到一个最终的`Transformer`类中。
+1.  **初始化 (`__init__`)**:
+    *   接收所有模型超参数。
+    *   实例化一个`Encoder`模块。
+    *   实例化一个`Decoder`模块。
+    *   创建一个最终的线性层`output_proj`，用于将解码器的输出映射到词汇表大小的logits。
+2.  **辅助函数 (`_generate_mask`)**:
+    *   创建一个私有辅助方法来生成掩码。这个方法将负责创建源序列的填充掩码和目标序列的前瞻+填充掩码。
+        *   **源掩码**: 只需要屏蔽`<PAD>`位。
+        *   **目标掩码**: 需要结合两方面的信息：(1) 屏蔽`<PAD>`位；(2) 创建一个下三角矩阵来屏蔽未来的词元。
+3.  **前向传播 (`forward`)**:
+    *   接收源序列`src`和目标序列`tgt`。
+    *   调用`_generate_mask`方法创建所有需要的掩码。
+    *   将`src`和`src_mask`传递给编码器，得到`encoder_output`。
+    *   将`tgt`、`encoder_output`以及两种掩码传递给解码器，得到`decoder_output`。
+    *   将`decoder_output`通过最终的线性投影层，得到logits。
+    *   返回logits。
 
-#### **1. 实时绘图的挑战与策略**
-
-在像Jupyter Notebook这样的交互式环境中，实时更新图表非常方便。但在一个普通的Python脚本中，每次都弹出一个新的绘图窗口会很麻烦。因此，我们的策略是：
-1.  在训练开始前，创建一个图表对象。
-2.  在每个epoch结束后，更新图表的数据并重新绘制。
-3.  在整个训练过程结束后，将最终的图表保存为一张图片。
-
-为了让代码更具通用性，我们将采用一种在脚本环境中也能良好运行的方式，即在训练循环结束后一次性绘制并展示/保存最终的损失曲线。
-
-#### **2. 实现绘图函数**
-
-首先，我们定义一个简单的函数，它接收损失历史记录并使用`matplotlib`进行绘图。
-
+##### **代码实现 (`model.py`)**
 ```python
-def plot_losses(losses):
-    plt.figure(figsize=(10, 5))
-    plt.plot(losses, label='Training Loss')
-    plt.title('Training Loss Over Epochs')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend()
-    plt.grid(True)
-    plt.show()
+# model.py (continued)
+
+class Transformer(nn.Module):
+    """
+    The complete Transformer model architecture.
+    """
+    def __init__(self, vocab_size: int, d_model: int, n_layer: int, n_head: int, d_ff: int, dropout: float):
+        super().__init__()
+        self.encoder = Encoder(vocab_size, d_model, n_layer, n_head, d_ff, dropout)
+        self.decoder = Decoder(vocab_size, d_model, n_layer, n_head, d_ff, dropout)
+        self.output_proj = nn.Linear(d_model, vocab_size)
+        
+        # Initialize weights
+        self._initialize_weights()
+
+    def _initialize_weights(self):
+        # Initialize parameters with Glorot / fan_avg.
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+
+    def forward(self, src: torch.Tensor, tgt: torch.Tensor) -> torch.Tensor:
+        # src shape: (batch_size, src_seq_len)
+        # tgt shape: (batch_size, tgt_seq_len)
+        
+        # 1. Create masks
+        # For our text generation task, src and tgt are the same.
+        # However, we build a general Transformer that could be used for translation.
+        # In this specific case, src_mask and tgt_padding_mask will be identical.
+        src_padding_mask = (src != 0).unsqueeze(1).unsqueeze(2) # (B, 1, 1, S)
+        tgt_padding_mask = (tgt != 0).unsqueeze(1).unsqueeze(2) # (B, 1, 1, T)
+        
+        seq_len = tgt.size(1)
+        look_ahead_mask = torch.tril(torch.ones(seq_len, seq_len, device=tgt.device)).bool() # (T, T)
+        
+        # Combine padding mask and look-ahead mask for the target
+        tgt_mask = tgt_padding_mask & look_ahead_mask # (B, 1, T, T)
+
+        # 2. Pass inputs through encoder
+        encoder_output = self.encoder(src, src_padding_mask)
+        
+        # 3. Pass encoder output and target through decoder
+        decoder_output = self.decoder(tgt, encoder_output, src_padding_mask, tgt_mask)
+        
+        # 4. Final linear projection
+        output = self.output_proj(decoder_output)
+        
+        return output
 ```
 
-代码解释：
-*   `plt.figure(figsize=(10, 5))`: 创建一个新的图窗，并设置其尺寸为10x5英寸，使其看起来更清晰。
-*   `plt.plot(losses, label='Training Loss')`: 这是核心的绘图命令。它以epoch的索引（`matplotlib`会自动处理）为x轴，以我们记录的损失值为y轴，绘制出一条线图。`label`参数用于图例显示。
-*   `plt.title(...)`, `plt.xlabel(...)`, `plt.ylabel(...)`: 设置图表的标题、x轴标签和y轴标签，让图表更具可读性。
-*   `plt.legend()`: 显示图例，即我们在`plot`函数中定义的`label`。
-*   `plt.grid(True)`: 在图表中添加网格线，方便观察数值。
-*   `plt.show()`: 显示绘制好的图表。
+##### **代码解释**
+*   **`__init__`**:
+    *   `self.encoder = Encoder(...)`, `self.decoder = Decoder(...)`: 实例化编码器和解码器。
+    *   `self.output_proj = nn.Linear(d_model, vocab_size)`: 创建最终的输出层。
+    *   `self._initialize_weights()`: 调用一个辅助函数来初始化模型的权重。使用Xavier/Glorot初始化是一种常见的做法，有助于模型在训练初期稳定收敛。
+*   **`forward`**:
+    *   **Mask Creation**:
+        *   `src_padding_mask = (src != 0).unsqueeze(1).unsqueeze(2)`: 这是创建填充掩码的关键。
+            1. `(src != 0)`: 假设我们的`<PAD>`索引是0。这个操作会创建一个布尔张量，`<PAD>`位是`False`，其他位是`True`。形状 `[B, S]`。
+            2. `.unsqueeze(1).unsqueeze(2)`: 增加两个维度，使其形状变为 `[B, 1, 1, S]`，以便能与多头注意力内部的 `[B, H, S, S]` 分数矩阵进行广播。
+        *   `look_ahead_mask = torch.tril(...)`: `torch.tril`创建一个下三角矩阵。这确保了每个位置只能关注到自己和之前的位置。
+        *   `tgt_mask = tgt_padding_mask & look_ahead_mask`: 通过逻辑与操作，将填充掩码和前瞻掩码合并。最终的`tgt_mask`在需要屏蔽的位置（填充位 或 未来位）为`False`。
+    *   **Data Flow**:
+        *   `encoder_output = self.encoder(...)`: 调用编码器。
+        *   `decoder_output = self.decoder(...)`: 调用解码器。
+        *   `output = self.output_proj(...)`: 计算最终的logits。
+    *   **关于文本生成的说明**: 在我们的任务中，源序列和目标序列实际上是同一个文本块的不同部分（`x`和`y`）。因此，`src`和`tgt`的填充掩码会是相同的。我们这里构建了一个更通用的框架，如果未来要用于机器翻译，代码无需大的改动。
 
-#### **3. 整合到主训练流程中**
-
-现在，我们将这个绘图功能整合到我们上一部分编写的主训练流程的末尾。我们会先完成所有的训练，然后调用这个函数来展示最终的结果。
-
-这是完整的、带有可视化功能的训练执行代码块：
-
-```python
-# --- (This part is the same as in Part 4) ---
-# Hyperparameters
-learning_rate = 3e-4
-num_epochs = 100 # Let's increase epochs for a better curve
-
-# Instantiate model, criterion, optimizer
-model = LanguageModel(vocab_size, d_model, n_layers, n_heads).to(device)
-criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-
-# Training loop
-train_losses = []
-print("Starting training...")
-for epoch in range(num_epochs):
-    train_loss = train(model, train_loader, criterion, optimizer, device)
-    train_losses.append(train_loss)
-    
-    # Print progress every 10 epochs
-    if (epoch + 1) % 10 == 0:
-        print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {train_loss:.4f}")
-
-print("Training finished.")
-
-# --- (This is the new part for visualization) ---
-# Now, plot the results
-plot_losses(train_losses)
-```
-
-代码解释：
-*   我们沿用了第四部分的所有训练设置和训练循环。
-*   在整个`for`循环结束后，`train_losses`列表中已经包含了每一轮训练的平均损失。
-*   此时，我们调用 `plot_losses(train_losses)`，将这个列表传递给我们的绘图函数。
-*   执行这段代码后，在训练过程的日志输出完毕后，会弹出一个窗口，清晰地展示损失值随训练轮次下降的曲线。
-
-**预期结果：**
-你将会看到一张图表，其Y轴代表交叉熵损失值，X轴代表训练的轮次（Epoch）。曲线的趋势应该是从左上角向右下角延伸，表示随着训练的进行，模型的预测越来越准，损失值越来越小。曲线的下降速度在初期会很快，后期会逐渐减慢，最终趋于平坦，这表明模型可能已经达到了收敛状态。
+---
+好的，现在我们已经构建了完整的模型，接下来将编写训练脚本来训练它。
 
 ---
 
-通过可视化，我们不再仅仅是看到一堆变化的数字，而是能够直观地感受到模型的“成长”过程。这是调试模型、判断训练状态不可或缺的工具。
+### **第三部分：模型训练**
 
----
+在这一部分，我们将创建一个名为 `train.py` 的主脚本。这个脚本将负责：
+1.  加载和准备数据。
+2.  初始化我们构建的Transformer模型。
+3.  定义损失函数和优化器。
+4.  执行训练循环，迭代数据、计算损失、更新模型参数。
+5.  保存训练好的模型权重。
 
-### **第六部分：文本生成（推理）与束搜索**
+#### **3.1 训练脚本 (`train.py`) 的结构**
 
-训练完成后，模型内部的权重已经学会了文本数据的语言模式。现在，我们的任务是利用这些学到的知识来生成新的文本序列。这个过程通常被称为“推理”（Inference）或“解码”（Decoding）。
+##### **代码流程详述**
+我们的训练脚本将遵循一个标准的PyTorch训练流程。
+1.  **导入**: 导入所有必要的库，包括`torch`、我们自己写的`config`、`utils`、`dataset`和`model`。
+2.  **主训练函数 `train()`**:
+    *   **设置**:
+        *   从`config`中获取设备（CPU/GPU）。
+        *   设置随机种子以保证实验的可复现性。
+    *   **数据加载**:
+        *   读取`tiny_shakespeare.txt`文件。
+        *   根据文本创建`CharacterVocabulary`实例。
+        *   将文本数据划分为训练集和验证集。
+        *   使用`create_dataloader`函数为训练集和验证集创建`DataLoader`。
+    *   **模型初始化**:
+        *   根据`config`中的超参数实例化`Transformer`模型。
+        *   将模型移动到指定的设备。
+    *   **损失函数与优化器**:
+        *   定义损失函数。我们将使用`nn.CrossEntropyLoss`。一个关键点是设置`ignore_index`参数，使其在计算损失时忽略掉填充（`<PAD>`）词元。
+        *   定义优化器。我们将使用AdamW，这是一种对Adam优化器的改进版本，在Transformer的训练中表现良好。
+    *   **训练循环**:
+        *   外层循环遍历所有`epoch`。
+        *   内层循环是`train_one_epoch`函数，负责处理一个epoch的训练数据。
+        *   （可选，为简化起见，我们暂时省略验证循环，但会指出其位置）。
+    *   **模型保存**:
+        *   训练结束后，使用`torch.save`保存模型的`state_dict`（即所有可学习的参数）。
 
-#### **1. 生成逻辑概述**
-
-无论是贪心搜索还是束搜索，其基本流程都是相似的，可以概括为自回归（auto-regressive）过程：
-1.  提供一个起始文本（prompt），如 "the man who"。
-2.  将prompt编码为数字索引，并送入模型。
-3.  模型会预测出prompt后面每一个位置的下一个字符的概率分布。我们只关心最后一个位置的预测，因为它是在给定整个prompt后对下一个字符的预测。
-4.  根据某种策略（贪心或束搜索）从这个概率分布中选择一个字符。
-5.  将选中的字符追加到prompt的末尾，形成新的、更长的prompt。
-6.  重复步骤2-5，直到生成了足够长的文本或遇到了特殊的结束标记。
-
-#### **2. 实现束搜索 (Beam Search)**
-
-贪心搜索在每一步都选择概率最高的那个词，虽然简单快速，但容易陷入局部最优，导致生成的文本可能比较平庸或出现重复。
-
-束搜索则是一种改进。它在每一步都会保留 `k` 个最可能的候选序列，这个 `k` 就是 **束宽（Beam Width）**。在下一步，它会基于这 `k` 个序列，探索所有可能的下一个字符，并从所有新生成的序列中，再次选出总概率最高的 `k` 个。这个过程不断迭代，直到所有 `k` 个序列都生成了结束符或达到了最大长度。
-
-下面是束搜索的实现代码。它比贪心搜索复杂，但我们会详细解释每一步。
-
+##### **代码实现 (`train.py`)**
 ```python
-def beam_search_generate(model, start_string, max_len, beam_width=3):
-    model.eval()
-    
-    # --- Initialization ---
-    encoded_start = torch.tensor(encode(start_string), dtype=torch.long, device=device).unsqueeze(0)
-    
-    # A list of tuples: (sequence, probability_score)
-    # The score is initially log probability, so we start with 0.
-    beams = [(encoded_start, 0.0)]
-    
-    with torch.no_grad():
-        for _ in range(max_len):
-            all_candidates = []
-            
-            # --- Expansion Step ---
-            # For each beam (existing candidate sequence), predict the next token
-            for seq, score in beams:
-                # The model expects a batch, so the shape should be [1, sequence_length]
-                input_tensor = seq
-                
-                logits = model(input_tensor)
-                # We only care about the prediction for the very last token
-                last_logits = logits[:, -1, :]
-                
-                # Apply softmax to get probabilities, and then log for scoring
-                log_probs = torch.log_softmax(last_logits, dim=-1)
-                
-                # Get the top `beam_width` most likely next tokens and their log probabilities
-                top_log_probs, top_indices = torch.topk(log_probs, beam_width, dim=-1)
-                
-                # Add the new candidates to our list
-                for i in range(beam_width):
-                    new_token = top_indices[0, i].unsqueeze(0).unsqueeze(0) # Shape [1, 1]
-                    new_log_prob = top_log_probs[0, i].item()
-                    
-                    # Create the new sequence and calculate its total score
-                    new_seq = torch.cat([seq, new_token], dim=1)
-                    new_score = score + new_log_prob
-                    all_candidates.append((new_seq, new_score))
-            
-            # --- Pruning Step ---
-            # Sort all candidates by their score (higher is better)
-            ordered_candidates = sorted(all_candidates, key=lambda x: x[1], reverse=True)
-            
-            # Keep only the top `beam_width` candidates for the next iteration
-            beams = ordered_candidates[:beam_width]
-            
-            # --- Check for Completion (Optional but good practice) ---
-            # If the top beam ends with an end-of-sentence token, you could stop.
-            # For this simple char-level model, we'll just run to max_len.
+# train.py
 
-    # --- Final Selection ---
-    # The best sequence is the one with the highest score at the end
-    best_seq, _ = beams[0]
-    generated_text = decode(best_seq.squeeze(0).tolist())
-    
-    return generated_text
-```
-
-代码解释：
-*   `def beam_search_generate(...)`: 定义生成函数，接收模型、起始文本、最大生成长度和束宽作为参数。
-*   `model.eval()`: 切换到评估模式，这非常重要。
-*   **初始化**:
-    *   `encoded_start = ...`: 将起始文本编码为张量。
-    *   `beams = [(encoded_start, 0.0)]`: 初始化我们的束列表。它包含一个元组，元组的第一个元素是序列本身，第二个元素是该序列的累积对数概率得分。初始得分为0。
-*   **主循环**: 循环 `max_len` 次来生成新字符。
-    *   `all_candidates = []`: 在每一轮生成开始前，创建一个空列表来存放所有可能的新序列。
-    *   **扩展步骤 (Expansion)**:
-        *   `for seq, score in beams:`: 遍历当前束中的每一个候选序列。
-        *   `logits = model(input_tensor)`: 将序列输入模型，得到预测结果。
-        *   `last_logits = logits[:, -1, :]`: 我们只关心对最后一个时间步的预测。
-        *   `log_probs = torch.log_softmax(...)`: 将`logits`转换为对数概率。我们使用对数概率而不是原始概率，因为多个小概率相乘容易导致数值下溢，而对数概率相加则更稳定。
-        *   `top_log_probs, top_indices = torch.topk(...)`: 找出概率最高的 `beam_width` 个下一个字符的索引和它们的对数概率。
-        *   `for i in range(beam_width):`: 对于每一个可能的下一个字符，我们都创建一个新的候选序列。
-        *   `new_seq = torch.cat(...)`: 将新预测的字符拼接到旧序列的末尾。
-        *   `new_score = score + new_log_prob`: 新序列的总分等于旧序列的分数加上新字符的对数概率。
-        *   `all_candidates.append(...)`: 将这个新的（序列，分数）对添加到候选列表中。
-    *   **剪枝步骤 (Pruning)**:
-        *   `ordered_candidates = sorted(...)`: 在扩展完所有束之后，`all_candidates` 列表中现在会有 `beam_width * beam_width` 个候选序列。我们根据它们的分数（对数概率，值越大越好）进行降序排序。
-        *   `beams = ordered_candidates[:beam_width]`: 我们只保留排序后的前 `beam_width` 个序列作为下一轮迭代的输入。所有其他的可能性都被“剪掉”了。
-*   **最终选择**:
-    *   `best_seq, _ = beams[0]`: 当循环结束后，`beams` 列表中的第一个序列就是总分数最高的那个。
-    *   `generated_text = decode(...)`: 将其解码回人类可读的文本并返回。
-
-#### **3. 执行生成**
-
-现在，让我们使用这个函数，看看我们训练好的模型能生成什么样的文本。
-
-```python
-# Set a starting prompt
-prompt = "the man who"
-
-# Generate text using beam search
-generated_output = beam_search_generate(
-    model=model,
-    start_string=prompt,
-    max_len=200,
-    beam_width=5 # A beam width of 5 is a good starting point
-)
-
-print("--- Generated Text ---")
-print(generated_output)
-```
-
-代码解释：
-*   我们定义一个 `prompt`。
-*   调用我们刚刚编写的 `beam_search_generate` 函数，传入模型、prompt、想要生成的长度以及束宽。
-*   打印函数返回的最终生成的文本。
-
-**预期结果：**
-输出的文本将以 "the man who" 开头，后面跟着模型生成的200个字符。由于我们使用的是字符级模型和相对较小的数据集，生成的文本可能不会完全符合语法规则，或者会出现一些拼写错误和重复。但是，它应该能够捕捉到原始文本的一些风格，比如单词的组合方式和空格的使用。束搜索的引入，会使其比简单的贪心搜索生成的文本更加连贯和多样化。
-
----
-
-我们已经成功地让模型生成了文本，并且使用了强大的束搜索算法！这是对我们之前所有工作的最终检验。
-
-### **第七部分：模型保存、加载与整合**
-
-在这一部分，我们将学习如何将训练好的模型权重保存到文件中，以及如何在需要时将它们加载回来，从而避免重复训练。最后，我们会把整个项目的代码逻辑整合到一个清晰的脚本框架中。
-
-#### **1. 保存模型 (Saving the Model)**
-
-在PyTorch中，保存模型的推荐方式是只保存模型的可学习参数（即权重和偏置），而不是整个模型对象。这被称为保存模型的`state_dict`（状态字典）。这样做更轻量、更灵活，不容易在代码重构时出错。
-
-我们通常在训练循环结束后，或者在验证集上达到最佳性能时保存模型。
-
-```python
-# Define a path to save the model
-MODEL_SAVE_PATH = "transformer_text_generator.pth"
-
-# Save the model's state dictionary
-torch.save(model.state_dict(), MODEL_SAVE_PATH)
-
-print(f"Model saved to {MODEL_SAVE_PATH}")
-```
-
-代码解释：
-*   `MODEL_SAVE_PATH`: 我们定义一个字符串变量来存储模型文件的路径和名称。`.pth` 或 `.pt` 是PyTorch模型文件常用的扩展名。
-*   `model.state_dict()`: 这是一个PyTorch `nn.Module` 的内置方法，它返回一个包含了模型所有参数（权重`weight`和偏置`bias`）的Python字典。字典的键是层的名称，值是对应的参数张量。
-*   `torch.save(object, path)`: 这是PyTorch通用的保存函数。我们将模型的状态字典作为要保存的对象，传递给它。
-
-#### **2. 加载模型 (Loading the Model)**
-
-加载模型的过程与保存相对应，分为两步：
-1.  首先，我们需要创建一个与保存时结构完全相同的模型实例。
-2.  然后，使用`load_state_dict()`方法将文件中保存的参数加载到这个新的模型实例中。
-
-```python
-# --- Imagine this is a new script, or you have restarted your session ---
-
-# 1. First, instantiate the model with the same architecture
-loaded_model = LanguageModel(
-    vocab_size=vocab_size,
-    d_model=d_model,
-    n_layers=n_layers,
-    n_heads=n_heads
-)
-
-# 2. Load the saved state dictionary
-# We use map_location to ensure the model loads correctly on CPU if it was saved from a GPU
-loaded_model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=device))
-
-# 3. Move the model to the desired device
-loaded_model.to(device)
-
-# 4. Remember to set the model to evaluation mode for inference
-loaded_model.eval()
-
-print(f"Model loaded from {MODEL_SAVE_PATH}")
-
-# You can now use the loaded_model for generation, just like the original one
-prompt = "who is in the"
-generated_text = beam_search_generate(loaded_model, prompt, max_len=100, beam_width=5)
-
-print("\n--- Generation from Loaded Model ---")
-print(generated_text)
-```
-
-代码解释：
-*   `loaded_model = LanguageModel(...)`: 我们必须先创建一个模型的“骨架”。PyTorch需要知道这些加载进来的权重应该放在模型的哪个位置。因此，这个实例的结构必须和我们保存时使用的模型结构一模一样。
-*   `torch.load(MODEL_SAVE_PATH, map_location=device)`: `torch.load` 函数从文件中读取对象。`map_location=device` 是一个非常有用的参数，它能确保即使你当前的环境没有GPU，也能成功加载一个在GPU上训练和保存的模型（它会智能地将张量映射到CPU上）。
-*   `loaded_model.load_state_dict(...)`: 这个方法会将加载的字典中的参数，按照键名匹配的方式，复制到`loaded_model`的对应参数上。
-*   `loaded_model.to(device)` 和 `loaded_model.eval()`: 加载完成后，不要忘记将模型移动到正确的设备，并切换到评估模式，这和我们直接使用训练好的模型进行推理时是完全一样的步骤。
-
-#### **3. 项目整合 (Putting It All Together)**
-
-现在，我们将之前所有部分的代码，按照逻辑顺序和良好的编程实践，整合到一个完整的脚本框架中。这展示了一个真实项目的文件结构会是什么样子。
-
-```python
-# ==============================================================================
-# main_script.py
-# ==============================================================================
-
-# --- (Part 1: Imports and Global Settings) ---
 import torch
 import torch.nn as nn
-from torch.utils.data import Dataset, DataLoader
-import numpy as np
+from torch.utils.data import DataLoader
+
+import config
+from utils import CharacterVocabulary
+from dataset import TextDataset, create_dataloader
+from model import Transformer
+
+import time
 import math
-import random
-import matplotlib.pyplot as plt
-from tqdm import tqdm
 
-# Settings
-def set_seed(seed):
-    # ... (function definition from Part 1)
-    random.seed(seed)
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed_all(seed)
-set_seed(42)
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-MODEL_SAVE_PATH = "transformer_text_generator.pth"
-DO_TRAINING = True # A flag to control whether to train or just load
-
-# --- (Part 2: Data Processing) ---
-# Hyperparameters
-block_size = 8
-batch_size = 4
-# Raw Text Data
-raw_text = """...""" # (Your text data from Part 2)
-raw_text = raw_text.lower()
-# Vocabulary
-chars = sorted(list(set(raw_text)))
-vocab_size = len(chars)
-stoi = {ch: i for i, ch in enumerate(chars)}
-itos = {i: ch for i, ch in enumerate(chars)}
-encode = lambda s: [stoi[c] for c in s]
-decode = lambda l: ''.join([itos[i] for i in l])
-# Dataset and DataLoader
-class TextDataset(Dataset):
-    # ... (class definition from Part 2)
-    def __init__(self, text, block_size):
-        self.block_size = block_size
-        self.data = torch.tensor(encode(text), dtype=torch.long)
-    def __len__(self):
-        return len(self.data) - self.block_size
-    def __getitem__(self, idx):
-        x = self.data[idx:idx+self.block_size]
-        y = self.data[idx+1:idx+self.block_size+1]
-        return x, y
-
-dataset = TextDataset(raw_text, block_size)
-train_loader = DataLoader(dataset=dataset, batch_size=batch_size, shuffle=True)
-
-# --- (Part 3: Model Architecture) ---
-# Hyperparameters
-d_model = 64
-n_heads = 4
-n_layers = 3
-dropout_rate = 0.1
-# Class definitions (PositionalEncoding, MultiHeadAttention, FeedForward, DecoderBlock, LanguageModel)
-class PositionalEncoding(nn.Module):
-    # ...
-class MultiHeadAttention(nn.Module):
-    # ...
-class FeedForward(nn.Module):
-    # ...
-class DecoderBlock(nn.Module):
-    # ...
-class LanguageModel(nn.Module):
-    # ...
+def train_one_epoch(model, dataloader, loss_fn, optimizer, device):
+    """
+    Performs one full training pass over the dataset.
+    """
+    model.train() # Set the model to training mode
+    total_loss = 0.0
     
-# --- (Part 4 & 5: Training and Visualization) ---
-# Hyperparameters
-learning_rate = 3e-4
-num_epochs = 100
-# Function definitions (train, evaluate, plot_losses)
-def train(model, data_loader, criterion, optimizer, device):
-    # ...
-def plot_losses(losses):
-    # ...
+    # Iterate over batches
+    for i, (src, tgt) in enumerate(dataloader):
+        # In our text generation task, src and tgt are derived from the same sequence.
+        # tgt_input is the target sequence shifted right (starts with <SOS>)
+        # tgt_output is the target sequence (ends with <EOS>)
+        # For this implementation, we simplify: src is input, tgt is the target to predict.
+        # The model's forward pass will handle the "teacher forcing" aspect internally.
+        
+        src, tgt = src.to(device), tgt.to(device)
 
-# --- (Part 6: Generation) ---
-# Function definition (beam_search_generate)
-def beam_search_generate(model, start_string, max_len, beam_width=3):
-    # ...
+        # The target for the model's forward pass is the sequence shifted right.
+        # The actual labels for loss calculation is the original target sequence.
+        # Let's assume tgt is structured as [y1, y2, ..., yN]
+        # The input to the decoder should be [<SOS>, y1, y2, ..., yN-1]
+        # The target for the loss function should be [y1, y2, ..., yN, <EOS>]
+        # Our current dataset implementation simplifies this:
+        # src = text[0...N-1], tgt = text[1...N]
+        
+        # Zero the gradients
+        optimizer.zero_grad()
+        
+        # Forward pass
+        logits = model(src, tgt) # In our simple case, tgt is used for teacher forcing
+        
+        # Calculate loss
+        # We need to reshape logits and tgt for CrossEntropyLoss
+        # Logits: (batch_size, seq_len, vocab_size) -> (batch_size * seq_len, vocab_size)
+        # Tgt: (batch_size, seq_len) -> (batch_size * seq_len)
+        loss = loss_fn(logits.view(-1, logits.size(-1)), tgt.view(-1))
+        
+        # Backward pass
+        loss.backward()
+        
+        # Clip gradients to prevent exploding gradients
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 0.5)
+        
+        # Update weights
+        optimizer.step()
+        
+        total_loss += loss.item()
 
-# --- Main Execution Block ---
+        if i % 200 == 0 and i > 0:
+            print(f"| Batch {i}/{len(dataloader)} | Loss: {loss.item():.4f}")
+
+    return total_loss / len(dataloader)
+
+
+def main():
+    """
+    Main function to orchestrate the training process.
+    """
+    # --- 1. Setup ---
+    torch.manual_seed(42)
+    device = torch.device(config.DEVICE)
+    print(f"Using device: {device}")
+
+    # --- 2. Data Loading ---
+    print("Loading data and creating vocabulary...")
+    with open(config.DATA_PATH, 'r', encoding='utf-8') as f:
+        text = f.read()
+    
+    vocab = CharacterVocabulary(text)
+    vocab_size = len(vocab)
+    print(f"Vocabulary size: {vocab_size}")
+
+    # Split data into training and validation sets
+    n = len(text)
+    train_text = text[:int(n * config.TRAIN_DATA_RATIO)]
+    # val_text = text[int(n * config.TRAIN_DATA_RATIO):] # We'll skip validation for simplicity
+
+    train_dataloader = create_dataloader(
+        train_text, vocab, config.BLOCK_SIZE, config.BATCH_SIZE
+    )
+    # val_dataloader = create_dataloader(val_text, vocab, config.BLOCK_SIZE, config.BATCH_SIZE)
+
+    # --- 3. Model Initialization ---
+    print("Initializing model...")
+    model = Transformer(
+        vocab_size=vocab_size,
+        d_model=config.D_MODEL,
+        n_layer=config.N_LAYER,
+        n_head=config.N_HEAD,
+        d_ff=4 * config.D_MODEL, # Standard practice
+        dropout=config.DROPOUT
+    ).to(device)
+    
+    print(f"Model has {sum(p.numel() for p in model.parameters())/1e6:.2f}M parameters")
+
+    # --- 4. Loss Function and Optimizer ---
+    loss_fn = nn.CrossEntropyLoss(ignore_index=vocab.pad_idx)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=config.LEARNING_RATE)
+
+    # --- 5. Training Loop ---
+    print("Starting training...")
+    for epoch in range(1, config.NUM_EPOCHS + 1):
+        start_time = time.time()
+        
+        avg_train_loss = train_one_epoch(model, train_dataloader, loss_fn, optimizer, device)
+        
+        end_time = time.time()
+        epoch_mins, epoch_secs = divmod(end_time - start_time, 60)
+        
+        print("-" * 50)
+        print(f"| End of Epoch: {epoch:02} | Time: {int(epoch_mins)}m {int(epoch_secs)}s |")
+        print(f"| Train Loss: {avg_train_loss:.4f} | Train PPL: {math.exp(avg_train_loss):.4f} |")
+        print("-" * 50)
+
+    # --- 6. Model Saving ---
+    print("Training finished. Saving model...")
+    torch.save(model.state_dict(), "transformer_model.pth")
+    # Also save the vocabulary for inference
+    import pickle
+    with open("vocab.pkl", "wb") as f:
+        pickle.dump(vocab, f)
+    print("Model and vocabulary saved.")
+
+
 if __name__ == "__main__":
-    
-    # Instantiate the model
-    model = LanguageModel(vocab_size, d_model, n_layers, n_heads).to(device)
-    
-    if DO_TRAINING:
-        print("--- Starting Model Training ---")
-        criterion = nn.CrossEntropyLoss()
-        optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-        
-        train_losses = []
-        for epoch in range(num_epochs):
-            train_loss = train(model, train_loader, criterion, optimizer, device)
-            train_losses.append(train_loss)
-            if (epoch + 1) % 10 == 0:
-                print(f"Epoch {epoch+1}/{num_epochs}, Train Loss: {train_loss:.4f}")
-        
-        print("--- Training Finished ---")
-        plot_losses(train_losses)
-        
-        # Save the trained model
-        torch.save(model.state_dict(), MODEL_SAVE_PATH)
-        print(f"Model saved to {MODEL_SAVE_PATH}")
-
-    else:
-        print("--- Loading Pre-trained Model ---")
-        try:
-            model.load_state_dict(torch.load(MODEL_SAVE_PATH, map_location=device))
-            print("Model loaded successfully.")
-        except FileNotFoundError:
-            print(f"Error: Model file not found at {MODEL_SAVE_PATH}. Please train first by setting DO_TRAINING = True.")
-            exit()
-            
-    # --- Perform Generation ---
-    print("\n--- Generating Text ---")
-    model.eval()
-    prompt = "the credit belongs to"
-    generated_text = beam_search_generate(model, prompt, max_len=300, beam_width=5)
-    print(generated_text)
-
+    main()
 ```
 
-代码解释：
-*   我们使用了一个 `DO_TRAINING` 布尔标志。当它为`True`时，脚本会执行完整的训练、绘图和保存流程。当它为`False`时，脚本会跳过训练，直接尝试加载已保存的模型文件。这使得我们可以轻松地在“训练模式”和“推理模式”之间切换。
-*   `if __name__ == "__main__":`: 这是Python脚本的标准写法，确保只有当这个文件作为主程序运行时，才会执行内部的代码。
-*   我们将所有的类和函数定义放在了主执行块之前，使得代码结构更加清晰。
-*   在加载部分，我们加入了一个`try-except`块来处理模型文件不存在的异常情况，使程序更加健壮。
+##### **代码解释**
+*   **`train_one_epoch` 函数**:
+    *   `model.train()`: 这是一个非常重要的调用。它告诉PyTorch模型正处于训练模式。这会激活Dropout层和（如果有的话）BatchNorm层。
+    *   `for i, (src, tgt) in enumerate(dataloader)`: 循环从`DataLoader`中获取一批数据。`src`和`tgt`就是我们`TextDataset`中返回的`(x, y)`对。
+    *   `src, tgt = src.to(device), tgt.to(device)`: 将数据张量移动到配置的设备（GPU或CPU）。
+    *   `optimizer.zero_grad()`: 在计算新梯度之前，必须清除上一批次计算的旧梯度。
+    *   `logits = model(src, tgt)`: 这是核心的前向传播步骤。**注意**：在我们的简单文本生成设置中，`src`是解码器的输入（teacher forcing），`tgt`是用于计算损失的标签。在`model.forward`中，`src`和`tgt`都被用来生成掩码，但只有`tgt`被解码器实际处理。为了代码清晰，我们可以认为`model(src, tgt)`的`src`参数在这里被忽略了，因为解码器只关心`tgt`和它自己生成的掩码。一个更通用的实现可能会将`tgt`拆分为`tgt_input`和`tgt_label`。
+    *   `loss = loss_fn(logits.view(-1, logits.size(-1)), tgt.view(-1))`:
+        *   `nn.CrossEntropyLoss`期望的输入形状是 `(N, C)`，其中N是样本数，C是类别数。
+        *   我们的`logits`形状是 `[B, S, V]` (B=batch, S=seq_len, V=vocab_size)。
+        *   我们的`tgt`形状是 `[B, S]`。
+        *   `.view(-1, ...)`将它们展平为 `[B*S, V]` 和 `[B*S]`，这正是损失函数需要的形状。
+    *   `loss.backward()`: 计算损失相对于模型所有参数的梯度。
+    *   `torch.nn.utils.clip_grad_norm_(...)`: 这是一个防止梯度爆炸的常用技巧。它会将梯度的范数（norm）限制在一个最大值（这里是0.5）内。
+    *   `optimizer.step()`: 根据计算出的梯度，使用AdamW算法更新模型的权重。
+    *   `total_loss += loss.item()`: `.item()`从张量中提取出Python标量值。我们累加损失以便计算整个epoch的平均损失。
+*   **`main` 函数**:
+    *   `torch.manual_seed(42)`: 设置随机种子，确保每次运行代码时，权重的随机初始化和数据的打乱顺序都是一样的，这对于调试和复现结果至关重要。
+    *   `with open(...)`: 打开并读取文本文件。
+    *   `vocab = CharacterVocabulary(text)`: 创建词汇表。
+    *   `model = Transformer(...)`: 实例化模型。
+    *   `loss_fn = nn.CrossEntropyLoss(ignore_index=vocab.pad_idx)`: **关键点**。`ignore_index`告诉损失函数，当目标标签`tgt`中的值为`vocab.pad_idx`时，不要计算该位置的损失。这确保了我们不会因为模型对填充位的预测而惩罚模型。
+    *   `optimizer = torch.optim.AdamW(...)`: AdamW通常比标准Adam在Transformer上效果更好。
+    *   `print(f"| Train PPL: {math.exp(avg_train_loss):.4f} |")`: 打印困惑度（Perplexity），它是交叉熵损失的指数，是评估语言模型性能的常用指标，更具可解释性。
+    *   `torch.save(model.state_dict(), ...)`: 保存模型的**状态字典**，它只包含模型的参数（权重和偏置），而不包含整个模型结构。这是推荐的保存方式。
+    *   `pickle.dump(vocab, f)`: 我们必须保存词汇表对象，因为在推理时，我们需要用它来将用户输入的文本编码为模型能理解的索引。
+
+好的，现在模型已经训练完毕并保存了权重，我们将进入最后一步：使用训练好的模型来生成新的文本。
 
 ---
 
-### **总结**
+### **第四部分：文本生成（推理）**
 
-恭喜您！我们已经一起从零开始，走完了使用PyTorch构建、训练和使用一个文本生成Transformer模型的全部流程。
+在这一部分，我们将创建 `generate.py` 脚本。这个脚本将加载我们之前保存的模型权重和词汇表，并实现一个函数来执行自回归（auto-regressive）文本生成。这意味着模型将逐个字符地生成文本，并将每个新生成的字符作为下一步的输入。
 
-您现在拥有了一份详尽的、覆盖了从数据处理到模型部署的完整笔记。回顾一下，我们完成了：
-1.  **项目准备**：搭建了环境并明确了目标。
-2.  **数据管道**：将原始文本转换为了模型可用的批量化数据。
-3.  **模型构建**：深入理解并亲手实现了Transformer的每一个核心组件。
-4.  **模型训练**：编写了标准的训练和评估循环。
-5.  **过程可视化**：学会了如何监控模型的学习进度。
-6.  **文本生成**：实现了先进的束搜索算法来产出高质量文本。
-7.  **模型持久化**：掌握了保存和加载模型，使工作成果可复用的关键技能。
+#### **4.1 生成脚本 (`generate.py`) 的结构**
 
-这份笔记为您打下了一个坚实的基础。您可以基于此框架，去探索更庞大的数据集、更深层的模型架构、更复杂的解码策略，以及更广阔的自然语言生成世界。
+##### **代码流程详述**
+1.  **导入**: 导入必要的库，包括`torch`、`pickle`（用于加载词汇表）、`config`以及我们的`model`模块。
+2.  **主生成函数 `generate()`**:
+    *   **设置**:
+        *   从`config`中获取设备。
+    *   **加载工件 (Artifacts)**:
+        *   使用`pickle`加载之前保存的`vocab.pkl`文件，重建词汇表对象。
+        *   获取词汇表大小。
+    *   **模型加载**:
+        *   根据`config`中的超参数重新实例化`Transformer`模型。
+        *   使用`model.load_state_dict()`加载我们训练好的权重`transformer_model.pth`。
+        *   将模型移动到指定的设备，并调用`model.eval()`。
+    *   **生成循环**:
+        *   定义一个起始文本（prompt），例如 "O Romeo, Romeo, wherefore art thou Romeo?"。
+        *   调用一个核心的生成函数（我们称之为`run_generation`），传入模型、词汇表、起始文本和要生成的最大长度。
+        *   打印生成的文本。
+
+#### **4.2 实现生成函数**
+
+##### **代码流程详述 (`run_generation` 函数)**
+这是推理过程的核心。它模拟了模型在没有"标准答案"的情况下如何一步步地构建输出序列。
+1.  **初始化**:
+    *   将模型设置为评估模式 `model.eval()`。这会关闭Dropout等训练特有的层。
+    *   使用词汇表将起始文本（prompt）编码为整数索引，并将其转换为PyTorch张量。这个张量就是我们解码过程的初始`tgt`序列。
+2.  **自回归循环**:
+    *   循环指定的次数（`max_len`）。
+    *   在循环的每一步：
+        *   **准备输入**: 确保输入序列的长度不超过模型的`BLOCK_SIZE`。如果超过，就截断它，只保留最后的`BLOCK_SIZE`个词元。
+        *   **前向传播**: 将当前的序列张量送入模型。**注意**：在推理时，我们只有一个序列，所以`src`和`tgt`是同一个东西。模型的前向传播将计算出序列中**最后一个**位置的logits，这代表了对下一个词元的预测。
+        *   **获取下一个词元的预测**: 从输出的logits中，只选择最后一个时间步的logits `[-1, :]`。
+        *   **应用Softmax**: 将这些logits通过Softmax函数转换为概率分布。
+        *   **选择下一个词元 (Greedy Search)**: 使用`torch.argmax`从概率分布中选出概率最高的那个词元的索引。
+        *   **更新序列**: 将新选出的词元索引拼接到当前序列的末尾。
+        *   **检查结束条件**: 如果生成的词元是`<EOS>`，则停止生成。
+3.  **解码与返回**:
+    *   循环结束后，使用词汇表的`decode`方法将整个整数索引序列转换回人类可读的文本字符串。
+    *   返回生成的文本。
+
+##### **代码实现 (`generate.py`)**
+```python
+# generate.py
+
+import torch
+import pickle
+
+import config
+from model import Transformer
+from utils import CharacterVocabulary
+
+def run_generation(model, vocab, prompt, max_len, device):
+    """
+    Generates text using the trained Transformer model.
+    """
+    model.eval() # Set the model to evaluation mode
+
+    # Encode the starting prompt
+    input_indices = vocab.encode(prompt)
+    
+    # Convert to a tensor and add a batch dimension
+    # Shape: (1, seq_len)
+    tgt = torch.tensor(input_indices, dtype=torch.long, device=device).unsqueeze(0)
+
+    # Generation loop
+    for _ in range(max_len):
+        # Ensure the input sequence doesn't exceed the model's block size
+        # We take the last `BLOCK_SIZE` tokens as context
+        tgt_for_model = tgt[:, -config.BLOCK_SIZE:]
+
+        # Perform a forward pass with no gradient calculation
+        with torch.no_grad():
+            # The model expects both src and tgt. In inference, they are the same.
+            logits = model(tgt_for_model, tgt_for_model)
+        
+        # Get the logits for the very last token
+        # Logits shape: (1, current_seq_len, vocab_size)
+        # We only care about the prediction for the next token
+        last_logits = logits[:, -1, :] # Shape: (1, vocab_size)
+        
+        # Apply softmax to get probabilities
+        probs = torch.softmax(last_logits, dim=-1)
+        
+        # Get the index of the token with the highest probability (Greedy Search)
+        next_token_idx = torch.argmax(probs, dim=-1) # Shape: (1)
+        
+        # Check if the model generated the End-Of-Sequence token
+        if next_token_idx.item() == vocab.eos_idx:
+            break
+            
+        # Append the predicted token to the sequence
+        # Shape becomes (1, current_seq_len + 1)
+        tgt = torch.cat([tgt, next_token_idx.unsqueeze(0)], dim=1)
+
+    # Decode the generated sequence of indices back to a string
+    generated_text = vocab.decode(tgt.squeeze(0).tolist())
+    
+    return generated_text
+
+
+def main():
+    """
+    Main function to load the model and run text generation.
+    """
+    # --- 1. Setup ---
+    device = torch.device(config.DEVICE)
+    print(f"Using device: {device}")
+
+    # --- 2. Load Vocabulary and Model ---
+    print("Loading vocabulary and model...")
+    try:
+        with open("vocab.pkl", "rb") as f:
+            vocab = pickle.load(f)
+        vocab_size = len(vocab)
+        
+        model = Transformer(
+            vocab_size=vocab_size,
+            d_model=config.D_MODEL,
+            n_layer=config.N_LAYER,
+            n_head=config.N_HEAD,
+            d_ff=4 * config.D_MODEL,
+            dropout=config.DROPOUT
+        ).to(device)
+        
+        model.load_state_dict(torch.load("transformer_model.pth", map_location=device))
+        print("Model and vocabulary loaded successfully.")
+    except FileNotFoundError:
+        print("Error: `transformer_model.pth` or `vocab.pkl` not found.")
+        print("Please run `train.py` first to train and save the model.")
+        return
+
+    # --- 3. Generate Text ---
+    prompt = "O Romeo, Romeo, wherefore art thou Romeo?"
+    max_len_to_generate = 500
+    
+    print("\n--- Starting Generation ---")
+    print(f"Prompt: {prompt}")
+    
+    generated_text = run_generation(model, vocab, prompt, max_len_to_generate, device)
+    
+    print("\n--- Generated Text ---")
+    print(generated_text)
+    print("\n------------------------")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+##### **代码解释**
+*   **`run_generation` 函数**:
+    *   `model.eval()`: 同样非常重要。它将模型切换到评估模式，关闭Dropout等。
+    *   `tgt = torch.tensor(...).unsqueeze(0)`: 将编码后的prompt列表转换为张量，并使用`.unsqueeze(0)`添加一个批次维度，因为我们的模型期望的输入形状是 `[batch_size, seq_len]`。
+    *   `for _ in range(max_len)`: 循环生成最多`max_len`个新字符。
+    *   `tgt_for_model = tgt[:, -config.BLOCK_SIZE:]`: 这是一个重要的细节。如果生成的序列比模型的`BLOCK_SIZE`长，我们不能将整个序列都喂给模型，因为位置编码只定义到了`BLOCK_SIZE`。我们只取最后的`BLOCK_SIZE`个字符作为上下文。
+    *   `with torch.no_grad()`: 这是一个上下文管理器，它告诉PyTorch在接下来的代码块中不要计算梯度。这可以显著减少内存消耗并加速计算，因为推理过程不需要反向传播。
+    *   `logits = model(tgt_for_model, tgt_for_model)`: 调用模型的前向传播。在推理时，`src`和`tgt`是相同的，即模型根据已有的序列来预测下一个。
+    *   `last_logits = logits[:, -1, :]`: 我们只对预测**下一个**字符感兴趣，所以我们只从logits张量 `[1, S, V]` 中取出最后一个时间步 `S-1` (在Python中索引为`-1`) 的结果。
+    *   `next_token_idx = torch.argmax(probs, dim=-1)`: `argmax`返回指定维度上最大值的索引。这里我们找到了概率最高的词元的索引。
+    *   `tgt = torch.cat([tgt, next_token_idx.unsqueeze(0)], dim=1)`: `torch.cat`用于拼接张量。我们将新预测出的词元索引（需要调整形状以匹配）拼接到`tgt`张量的末尾，为下一轮循环做准备。
+    *   `vocab.decode(tgt.squeeze(0).tolist())`:
+        1.  `.squeeze(0)`: 移除批次维度，将形状从 `[1, S]` 变为 `[S]`。
+        2.  `.tolist()`: 将PyTorch张量转换为Python列表。
+        3.  `vocab.decode(...)`: 调用我们之前写的解码函数，将索引列表变回字符串。
+*   **`main` 函数**:
+    *   `try...except FileNotFoundError`: 添加了错误处理，如果用户没有先训练模型，会给出友好的提示。
+    *   `model.load_state_dict(torch.load("transformer_model.pth", map_location=device))`:
+        *   `torch.load(...)`: 加载保存在磁盘上的模型权重。
+        *   `map_location=device`: 这是一个好习惯，它确保了即使模型是在GPU上训练和保存的，也能在只有CPU的机器上成功加载。
+        *   `model.load_state_dict(...)`: 将加载的权重应用到我们新创建的模型实例上。
+
+现在，您可以运行 `python generate.py` 来查看您的Transformer模型的创作了！您可以通过修改`prompt`和`max_len_to_generate`来与模型进行不同的交互。
+
+---
