@@ -109,6 +109,7 @@ wget -O data/tiny_shakespeare.txt https://raw.githubusercontent.com/karpathy/cha
 ##### **代码流程详述**
 由于我们不使用外部库进行分词，最直接的方法是创建一个字符级别的词汇表。这意味着模型的基本单位是单个字符（字母、标点、空格等），而不是单词。
 我们的词汇表类 `CharacterVocabulary` 需要实现以下功能：
+
 1.  在初始化时，读取整个文本文件，找出所有不重复的字符。
 2.  创建两个核心的映射字典：
     *   `stoi` (string-to-index): 将每个字符映射到一个唯一的整数索引。
@@ -223,7 +224,7 @@ class TextDataset(Dataset):
         
         # The last block_size characters (shifted by one) are the target
         y = torch.tensor(chunk[1:], dtype=torch.long)
-        
+         
         return x, y
 
 def create_dataloader(text, vocab, block_size, batch_size, shuffle=True):
@@ -998,7 +999,7 @@ def train_one_epoch(model, dataloader, loss_fn, optimizer, device):
     total_loss = 0.0
     
     # Iterate over batches
-    for i, (src, tgt) in enumerate(dataloader):
+    for i, (src, tgt) in enumerate(dataloader):	
         # In our text generation task, src and tgt are derived from the same sequence.
         # tgt_input is the target sequence shifted right (starts with <SOS>)
         # tgt_output is the target sequence (ends with <EOS>)
