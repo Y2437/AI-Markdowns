@@ -301,9 +301,6 @@ DEVICE = "cuda" # "cuda" if torch.cuda.is_available() else "cpu"
 *   将这些参数放在一个单独的文件中，意味着当你想尝试不同的模型大小（如改变`D_MODEL`或`N_LAYER`）或训练设置时，你只需要修改这一个文件，而无需深入到模型或训练脚本的内部逻辑中。
 
 ---
-好的，我们继续构建Transformer模型的核心组件。
-
----
 
 ### **第一部分：构建Transformer的核心组件**
 
